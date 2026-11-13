@@ -1,0 +1,28 @@
+name: macOS build and tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run offline tests
+        run: ./scripts/test.sh
+      - name: Build for Apple Silicon and Intel
+        run: ./scripts/build.sh --universal
+      - name: Package build
+        run: ditto -c -k --sequesterRsrc --keepParent 'build/学术助手.app' build/AcademicAssistant-macOS.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AcademicAssistant-macOS
+          path: build/AcademicAssistant-macOS.zip
+          retention-days: 14

@@ -1,0 +1,135 @@
+---
+name: summarize-research-paper
+description: Analyze and explain academic or technical research papers from PDFs, URLs, citations, pasted text, or paper metadata. Use when Codex needs to summarize a paper's problem, existing-method bottlenecks and field-wide challenges, research gap and exact focus, contributions and novelty, method with equations or theory, datasets, experiments, results, ablations, limitations, or practical implications; compare the paper with prior work; or produce a structured paper-reading note in English, Chinese, or a bilingual format.
+---
+
+# Summarize Research Paper
+
+Produce an evidence-grounded explanation that helps the reader understand not only what the paper says, but why the work was needed, how it works, and whether the evidence supports its claims.
+
+## Workflow
+
+1. Obtain the primary paper and identify its title, authors, venue or preprint status, and version/date. Prefer the paper itself over third-party summaries.
+2. Read the abstract, introduction, related work, method, experiments, tables/figures, limitations, and appendix sections relevant to the claims.
+3. Trace every central claim to evidence in the paper. Use section, page, equation, figure, or table references when available.
+4. Separate statements into:
+   - **Paper-stated claim**: what the authors explicitly claim.
+   - **Observed evidence**: what the experiments or analysis demonstrate.
+   - **Interpretation**: a reasoned explanation or implication.
+5. Match the user's language. If the user mixes Chinese and English, default to clear Chinese prose while retaining standard English technical terms in parentheses.
+6. Adapt depth to the paper. Explain equations and theory for mathematical papers; emphasize system design, implementation, and efficiency for systems papers; emphasize data, protocol, and validity for empirical papers.
+
+If the full paper is unavailable, summarize only the accessible material and clearly state the resulting limits. Never infer unreported dataset details, results, novelty, or implementation choices.
+
+## Required Analysis
+
+### 1. Problem to Solve
+
+Explain:
+
+- the real-world or scientific problem;
+- the specific technical task;
+- why the problem matters;
+- the paper's scope, assumptions, and success criteria.
+
+Distinguish the high-level motivation from the formal problem definition.
+
+### 2. Existing Methods, Bottlenecks, Field Problems, and Gap
+
+Keep these four layers separate:
+
+1. **Current method families**: organize prior work by approach rather than listing citations.
+2. **Method bottlenecks**: identify concrete weaknesses such as accuracy, robustness, scalability, cost, data dependence, generalization, interpretability, or theoretical limitations.
+3. **Mainstream field-wide problems**: explain challenges broadly recognized in the area.
+4. **Research gap and paper focus**: state precisely what remains unresolved and which part this paper tackles.
+
+Use a compact comparison table when three or more method families can be compared on shared dimensions. Do not accept a claimed gap uncritically; indicate whether it is demonstrated, argued, or merely asserted by the authors.
+
+### 3. Contributions and Novelty
+
+List contributions as verifiable items, normally three to five. Classify each as applicable:
+
+- new problem formulation or theory;
+- new model, algorithm, architecture, or system;
+- new dataset, benchmark, or evaluation protocol;
+- new empirical finding or analysis;
+- efficiency, robustness, or practical improvement.
+
+For every item, explain **what is new**, **relative to what prior work**, and **why it matters**. Distinguish the authors' claimed contributions from novelty supported by the related-work comparison.
+
+### 4. Method in Detail
+
+Explain the method from inputs to outputs:
+
+1. Define the task, inputs, outputs, symbols, and assumptions.
+2. Give an intuitive overview before technical detail.
+3. Walk through the architecture, algorithm, training objective, inference procedure, or proof structure in execution order.
+4. Reproduce only the equations needed for understanding. Define every symbol immediately and explain what each term does.
+5. Connect equations to implementation: what is optimized, what is learned, what is fixed, and how gradients or updates flow.
+6. State computational complexity, memory, data requirements, or theoretical guarantees when reported.
+7. Add a small worked example or conceptual analogy when it materially improves understanding.
+
+Render mathematics clearly. For an objective such as
+
+\[
+\mathcal{L}(\theta)=\mathcal{L}_{\text{task}}(\theta)+\lambda\mathcal{R}(\theta),
+\]
+
+explain the role of the task loss, regularizer, parameter set \(\theta\), and trade-off weight \(\lambda\), rather than merely copying the formula.
+
+If the paper has no substantial mathematical method, say so and focus on the actual design or experimental logic.
+
+### 5. Datasets and Experimental Setup
+
+For each dataset, report only what is available:
+
+- name and source;
+- data modality and domain;
+- task and label type;
+- scale, classes, and train/validation/test split;
+- collection or preprocessing details;
+- whether it is introduced by the paper or reused;
+- distribution, bias, privacy, licensing, or leakage concerns;
+- its role in training, validation, evaluation, or ablation.
+
+Also summarize baselines, metrics, evaluation protocol, implementation details, compute, and statistical testing when reported. Explain why each metric is appropriate and whether higher or lower is better.
+
+### 6. Results
+
+Report:
+
+- primary quantitative results with metric names and units;
+- strongest relevant baseline and absolute/relative improvement when meaningful;
+- statistical uncertainty or significance;
+- ablations and what they establish;
+- robustness, transfer, qualitative, efficiency, and failure-case results;
+- negative or mixed findings;
+- whether the evidence supports each major claim.
+
+Do not call a result “state of the art” unless the comparison is fair and the paper supports it. Note differences in data, model size, compute, pretraining, or evaluation protocol that weaken comparisons.
+
+## Output Structure
+
+Use this order unless the user requests another format:
+
+1. **Paper at a glance** — citation/status and a two-to-four sentence overview.
+2. **Problem being solved**
+3. **Existing approaches, bottlenecks, field challenges, and gap**
+4. **Main contributions and innovations**
+5. **Method explained in detail**
+6. **Datasets and experimental setup**
+7. **Results and what they mean**
+8. **Limitations, open questions, and practical takeaway**
+
+End with a concise bottom line answering: *What changed because of this paper, and how convincing is the evidence?*
+
+## Quality Rules
+
+- Preserve technical accuracy while translating jargon into plain language.
+- Cite the primary paper near factual claims when links or citations are requested or available.
+- Use exact numbers from tables rather than vague adjectives.
+- Mark information as **not reported** when absent.
+- Distinguish percentage-point improvement from percent relative improvement.
+- Avoid equating correlation with causation or benchmark gains with real-world usefulness.
+- Mention reproducibility risks such as unavailable code/data, incomplete hyperparameters, or undisclosed compute.
+- Keep summary length proportional to the user's request; do not omit the six required analysis areas merely to be brief.
