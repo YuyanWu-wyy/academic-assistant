@@ -11,6 +11,9 @@ fi
 xcrun --find swiftc >/dev/null
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp -X "$PROJECT_DIR/Resources/Info.plist" "$APP_DIR/Contents/Info.plist"
+if [[ -n "${APP_BUNDLE_ID:-}" ]]; then
+  plutil -replace CFBundleIdentifier -string "$APP_BUNDLE_ID" "$APP_DIR/Contents/Info.plist"
+fi
 cp -X "$PROJECT_DIR/Resources/"*.txt "$PROJECT_DIR/Resources/AppIcon.icns" "$APP_DIR/Contents/Resources/"
 SOURCES=("$PROJECT_DIR/Sources/"*.swift)
 FRAMEWORKS=(-framework Cocoa -framework Carbon -framework ApplicationServices -framework Security -framework PDFKit -framework WebKit)

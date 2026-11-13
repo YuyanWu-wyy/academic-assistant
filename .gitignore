@@ -15,5 +15,6 @@ workspace/
 *.mobileprovision
 *.keychain*
 Papers/
+PaperIndex/
 reading.json
 *.pdf

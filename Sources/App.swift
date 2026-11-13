@@ -13,7 +13,7 @@ func button(_ title: String, _ target: AnyObject, _ action: Selector) -> NSButto
 }
 
 @MainActor
-class AssistantApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextViewDelegate {
+class AssistantApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextViewDelegate, NSSplitViewDelegate {
     var window: NSWindow!
     var settingsWindow: NSWindow?
     var statusItem: NSStatusItem!
@@ -38,6 +38,8 @@ class AssistantApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextVie
     var eventHandler: EventHandlerRef?
     var readingHotKeys: [EventHotKeyRef] = []
     var reader: PaperReaderController?
+    var indexStore: PaperIndexStore?
+    var indexWindow: PaperIndexController?
     var lastBrowser: NSRunningApplication?
     var browserObserver: NSObjectProtocol?
     var captureForReading = false
@@ -65,6 +67,8 @@ class AssistantApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextVie
         NSApp.servicesProvider = self
         NSUpdateDynamicServices()
         showWindow()
+        do { _ = try paperIndexStore() }
+        catch { status("论文索引未能打开，已有阅读记录保留：\(error.localizedDescription)", error: true) }
         if CommandLine.arguments.contains("--demo") { showDemo() }
     }
 
@@ -89,11 +93,17 @@ class AssistantApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextVie
         for (title, action, key) in [("撤销", "undo:", "z"), ("剪切", "cut:", "x"), ("复制", "copy:", "c"), ("粘贴", "paste:", "v"), ("全选", "selectAll:", "a")] {
             edit.addItem(withTitle: title, action: Selector(action), keyEquivalent: key)
         }
-        editItem.submenu = edit; main.addItem(editItem); NSApp.mainMenu = main
+        editItem.submenu = edit; main.addItem(editItem)
+        let viewItem = NSMenuItem(title: "显示", action: nil, keyEquivalent: "")
+        let viewMenu = NSMenu(title: "显示")
+        let fullscreen = NSMenuItem(title: "切换全屏", action: #selector(toggleFullScreen), keyEquivalent: "f")
+        fullscreen.keyEquivalentModifierMask = [.control, .command]; fullscreen.target = self
+        viewMenu.addItem(fullscreen); viewItem.submenu = viewMenu; main.addItem(viewItem)
+        NSApp.mainMenu = main
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = NSImage(systemSymbolName: "text.badge.checkmark", accessibilityDescription: "学术助手")
         let menu = NSMenu()
-        for (title, action) in [("打开学术助手", #selector(showWindow)), ("论文阅读", #selector(showReader)), ("读取浏览器论文  ⌃⌥⌘R", #selector(readBrowserPaper)), ("选中段落提问  ⌃⌥⌘D", #selector(captureReadingSelection)), ("润色选中文字  ⌃⌥⌘P", #selector(captureSelection)), ("从剪贴板读取", #selector(pasteSource)), ("DeepSeek 设置…", #selector(showSettings)), ("启用选文快捷键…", #selector(requestAccessibility)), ("查看使用说明", #selector(showHelp))] {
+        for (title, action) in [("打开学术助手", #selector(showWindow)), ("论文索引与主题图谱", #selector(showPaperIndex)), ("论文阅读", #selector(showReader)), ("读取浏览器论文  ⌃⌥⌘R", #selector(readBrowserPaper)), ("选中段落提问  ⌃⌥⌘D", #selector(captureReadingSelection)), ("润色选中文字  ⌃⌥⌘P", #selector(captureSelection)), ("从剪贴板读取", #selector(pasteSource)), ("DeepSeek 设置…", #selector(showSettings)), ("启用选文快捷键…", #selector(requestAccessibility)), ("查看使用说明", #selector(showHelp))] {
             menu.addItem(withTitle: title, action: action, keyEquivalent: "").target = self
         }
         menu.addItem(.separator()); menu.addItem(withTitle: "退出", action: #selector(quit), keyEquivalent: "q").target = self
@@ -127,13 +137,12 @@ class AssistantApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextVie
     func buildWindow() {
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1030, height: 690), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = "学术助手 · DeepSeek"
+        window.collectionBehavior.insert(.fullScreenPrimary)
         window.minSize = NSSize(width: 820, height: 570)
         window.isReleasedWhenClosed = false; window.delegate = self; window.center()
-        let heading = label("在这里，看清每一次修改。", size: 25, weight: .semibold)
+        let heading = label("写作", size: 18, weight: .semibold)
         let settings = button("DeepSeek 设置", self, #selector(showSettings))
-        let header = NSStackView(views: [heading, spacer(), button("论文阅读", self, #selector(showReader)), settings]); header.orientation = .horizontal; header.spacing = 10
-        let hint = label("Overleaf / 浏览器 PDF  ·  选中文字 → ⌃⌥⌘P → 预览 → 复制结果", size: 13)
-        hint.textColor = .secondaryLabelColor
+        let header = NSStackView(views: [heading, spacer(), button("论文索引", self, #selector(showPaperIndex)), button("论文阅读", self, #selector(showReader)), settings]); header.orientation = .horizontal; header.spacing = 10
         modePicker = NSSegmentedControl(labels: ["英文润色", "中文解释", "中英翻译"], trackingMode: .selectOne, target: self, action: #selector(modeChanged))
         modePicker.selectedSegment = 0
         modePicker.toolTip = "英文润色：按你的学术写作规范修改；中文解释：帮助理解段落；中英翻译：英文译中文，中文译学术英文。"
@@ -142,8 +151,10 @@ class AssistantApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextVie
         selectionPermissionButton = authorize
         refreshSelectionPermission()
         let tools = NSStackView(views: [modePicker, spacer(), paste, authorize]); tools.orientation = .horizontal; tools.spacing = 10
-        let panels = NSStackView(views: [textPanel(original, title: inputLabel, id: "sourceText", editable: true), textPanel(result, title: label("结果预览", size: 14, weight: .semibold), id: "resultText", editable: false)])
-        panels.orientation = .horizontal; panels.distribution = .fillEqually; panels.spacing = 18
+        let panels = NSSplitView(); panels.isVertical = true; panels.dividerStyle = .thin; panels.delegate = self; panels.autosaveName = "WritingSplit"
+        panels.addArrangedSubview(textPanel(original, title: inputLabel, id: "sourceText", editable: true))
+        panels.addArrangedSubview(textPanel(result, title: label("结果预览", size: 14, weight: .semibold), id: "resultText", editable: false))
+        for view in panels.arrangedSubviews { view.widthAnchor.constraint(greaterThanOrEqualToConstant: 260).isActive = true }
         original.delegate = self
         runButton = button("开始润色", self, #selector(run)); runButton.keyEquivalent = "\r"; runButton.keyEquivalentModifierMask = [.command]
         runButton.bezelColor = .systemTeal
@@ -154,7 +165,7 @@ class AssistantApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextVie
         statusLabel.textColor = .secondaryLabelColor
         let privacy = label("仅在你发起处理时，将左侧文字发送至 DeepSeek。结果不会自动替换原文。", size: 11)
         privacy.textColor = .tertiaryLabelColor
-        let stack = NSStackView(views: [header, hint, tools, panels, actions, statusLabel, privacy])
+        let stack = NSStackView(views: [header, tools, panels, actions, statusLabel, privacy])
         stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 15
         stack.translatesAutoresizingMaskIntoConstraints = false
         let content = window.contentView!; content.addSubview(stack)
@@ -164,11 +175,35 @@ class AssistantApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextVie
     }
 
     @objc func showWindow() { NSApp.activate(ignoringOtherApps: true); window.makeKeyAndOrderFront(nil) }
+    @objc func toggleFullScreen() { NSApp.keyWindow?.toggleFullScreen(nil) }
+    func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat { 260 }
+    func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat { splitView.bounds.width - 260 }
     @objc func quit() { activeTask?.cancel(); validationTask?.cancel(); reader?.cancel(); reader?.flushNotes(); NSApp.terminate(nil) }
     func applicationWillTerminate(_ notification: Notification) { reader?.flushNotes() }
     @objc func showReader() {
         do { if reader == nil { reader = try PaperReaderController(owner: self) }; reader?.show() }
         catch { showWindow(); status("阅读资料夹无法打开：\(error.localizedDescription)", error: true) }
+    }
+    func paperIndexStore() throws -> PaperIndexStore {
+        if let indexStore { return indexStore }
+        let store = try PaperIndexStore()
+        try store.synchronize(PaperLibrary().all())
+        indexStore = store
+        return store
+    }
+    @objc func showPaperIndex() {
+        do {
+            if indexWindow == nil { indexWindow = PaperIndexController(owner: self, store: try paperIndexStore()) }
+            indexWindow?.show()
+        } catch { showWindow(); status("论文索引无法打开：\(error.localizedDescription)", error: true) }
+    }
+    func updatePaperIndex(_ paper: PaperRecord, readAt: Date? = nil) {
+        guard !paper.isExcerpt else { return }
+        do {
+            let store = try paperIndexStore()
+            _ = try store.collect(title: paper.title, sourceURL: paper.sourceURL, readingID: paper.id, summary: paper.summary, readAt: readAt ?? paper.updatedAt)
+            indexWindow?.reload()
+        } catch { status("论文索引未能更新：\(error.localizedDescription)", error: true) }
     }
     @objc func readBrowserPaper() {
         let front = NSWorkspace.shared.frontmostApplication

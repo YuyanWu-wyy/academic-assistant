@@ -4,7 +4,7 @@ import WebKit
 import UniformTypeIdentifiers
 
 @MainActor
-final class PaperReaderController: NSObject, NSWindowDelegate, NSTextViewDelegate, WKNavigationDelegate {
+final class PaperReaderController: NSObject, NSWindowDelegate, NSTextViewDelegate, WKNavigationDelegate, NSSplitViewDelegate {
     weak var owner: AssistantApp?
     let library: PaperLibrary
     var window: NSWindow!
@@ -32,6 +32,7 @@ final class PaperReaderController: NSObject, NSWindowDelegate, NSTextViewDelegat
     var operationID = UUID()
     var noteSave: DispatchWorkItem?
     var loadingNotes = false
+    let readingSplit = NSSplitView()
 
     init(owner: AssistantApp) throws {
         self.owner = owner
@@ -69,41 +70,34 @@ final class PaperReaderController: NSObject, NSWindowDelegate, NSTextViewDelegat
     func build() {
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1240, height: 850), styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
         window.title = "论文阅读 · 学术助手"; window.minSize = NSSize(width: 1040, height: 730)
+        window.collectionBehavior.insert(.fullScreenPrimary)
         window.isReleasedWhenClosed = false; window.delegate = self; window.center()
-        let header = NSStackView(views: [label("先读懂全貌，再追问细节。", size: 24, weight: .semibold), spacer(), button("写作润色", self, #selector(openWriting))])
-        header.orientation = .horizontal
-        let hint = label("浏览器论文 ⌃⌥⌘R  ·  选中段落追问 ⌃⌥⌘D  ·  中文导读、问答和笔记自动保存在此 Mac", size: 12)
-        hint.textColor = .secondaryLabelColor
         picker.target = self; picker.action = #selector(selectPaper); picker.setAccessibilityLabel("我的论文")
-        picker.widthAnchor.constraint(greaterThanOrEqualToConstant: 440).isActive = true
+        picker.widthAnchor.constraint(greaterThanOrEqualToConstant: 320).isActive = true
         let renameButton = button("重命名", self, #selector(renamePaper))
-        let libraryRow = NSStackView(views: [label("我的论文", weight: .semibold), picker, renameButton, spacer(), button("导出阅读笔记", self, #selector(exportReading))])
+        let libraryRow = NSStackView(views: [picker, renameButton, spacer(), button("论文索引", owner!, #selector(AssistantApp.showPaperIndex)), button("写作", self, #selector(openWriting)), button("导出笔记", self, #selector(exportReading))])
         libraryRow.orientation = .horizontal; libraryRow.spacing = 10
         let importButton = button("导入 PDF", self, #selector(importPDF))
-        let linkButton = button("粘贴论文链接", self, #selector(importLink))
-        let browserButton = button("从浏览器读取", self, #selector(fromBrowser))
-        visionToggle.state = .on
-        visionToggle.toolTip = "Flash 可读取本轮范围内最多 80 页图像。长文默认仅用全文文字；填写解读页码后可开启图表。Pro 仅处理文字。"
-        generateButton = button("生成中文导读", self, #selector(summarize))
-        generateButton.bezelColor = .systemTeal
+        let linkButton = button("链接", self, #selector(importLink)); linkButton.toolTip = "粘贴论文链接"
+        let browserButton = button("浏览器", self, #selector(fromBrowser)); browserButton.toolTip = "从浏览器读取论文 · ⌃⌥⌘R"
+        visionToggle.state = .on; visionToggle.title = "图表"
+        visionToggle.toolTip = "Flash 可读取本轮范围内最多 80 页图像。长文默认仅用全文文字；Pro 仅处理文字。"
+        generateButton = button("生成中文导读", self, #selector(summarize)); generateButton.bezelColor = .systemTeal
+        generateButton.toolTip = "将选定范围的原文和已启用的页面图像发送至 DeepSeek，生成中文导读。"
         cancelButton = button("取消", self, #selector(cancel)); cancelButton.isHidden = true
         progress.style = .spinning; progress.controlSize = .small; progress.isDisplayedWhenStopped = false
-        let actions = NSStackView(views: [importButton, linkButton, browserButton, visionToggle, spacer(), progress, cancelButton, generateButton])
+        titleLabel.maximumNumberOfLines = 1; titleLabel.textColor = .secondaryLabelColor; titleLabel.font = .systemFont(ofSize: 12)
+        titleLabel.stringValue = ""; titleLabel.setAccessibilityLabel("论文页数")
+        scopeField.placeholderString = "全部，或 20-35"; scopeField.setAccessibilityLabel("解读范围")
+        scopeField.toolTip = "留空读取全文；也可输入 PDF 页码，例如 20-35 或 5,12-18。每轮图表最多 80 页。"
+        scopeField.widthAnchor.constraint(equalToConstant: 126).isActive = true
+        let actions = NSStackView(views: [importButton, linkButton, browserButton, visionToggle, label("范围", size: 12), scopeField, titleLabel, spacer(), progress, cancelButton, generateButton])
         actions.orientation = .horizontal; actions.spacing = 8
-        titleLabel.maximumNumberOfLines = 2
-        titleLabel.setAccessibilityLabel("论文范围")
-        scopeField.placeholderString = "全部，或 20-35"
-        scopeField.setAccessibilityLabel("解读范围")
-        scopeField.widthAnchor.constraint(equalToConstant: 160).isActive = true
-        let scopeHint = label("留空读全文；长文默认仅文字。读图表时填写页码，并勾选“同时读取图表”。", size: 11)
-        scopeHint.textColor = .secondaryLabelColor
-        let scopeRow = NSStackView(views: [label("解读范围", size: 12), scopeField, scopeHint, spacer()])
-        scopeRow.orientation = .horizontal; scopeRow.spacing = 10
         pageField.setAccessibilityLabel("跳转到 PDF 页"); pageField.alignment = .center
         pageField.widthAnchor.constraint(equalToConstant: 44).isActive = true
         let jump = button("跳转", self, #selector(jumpPage))
         let quote = button("用选中段落提问", self, #selector(quotePDF))
-        let pageBar = NSStackView(views: [label("原文 · PDF 页", size: 12), pageField, jump, spacer(), quote])
+        let pageBar = NSStackView(views: [label("PDF 页", size: 12), pageField, jump, spacer(), quote])
         pageBar.orientation = .horizontal; pageBar.spacing = 6
         pdfView.autoScales = true; pdfView.displayMode = .singlePageContinuous; pdfView.displayDirection = .vertical
         pdfView.backgroundColor = .windowBackgroundColor
@@ -130,18 +124,22 @@ final class PaperReaderController: NSObject, NSWindowDelegate, NSTextViewDelegat
         let chatTab = NSTabViewItem(identifier: "chat"); chatTab.label = "细读问答"; chatTab.view = chatColumn; tabs.addTabViewItem(chatTab)
         let notesScroll = textBox(notesView, label: "我的阅读笔记"); notesView.delegate = self
         let noteTab = NSTabViewItem(identifier: "notes"); noteTab.label = "我的笔记"; noteTab.view = notesScroll; tabs.addTabViewItem(noteTab)
-        let columns = NSStackView(views: [pdfColumn, tabs]); columns.orientation = .horizontal; columns.distribution = .fillEqually; columns.spacing = 16
-        statusLabel.textColor = .secondaryLabelColor; statusLabel.maximumNumberOfLines = 2
-        let privacy = label("导入与笔记仅存本机；开始导读或提问时，本篇材料发送至 DeepSeek。相关工作仅依据论文自身引文。", size: 11)
-        privacy.textColor = .secondaryLabelColor
-        let stack = NSStackView(views: [header, hint, libraryRow, actions, titleLabel, scopeRow, columns, statusLabel, privacy])
-        stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 12; stack.translatesAutoresizingMaskIntoConstraints = false
+        let columns = readingSplit; columns.isVertical = true; columns.dividerStyle = .thin; columns.delegate = self
+        columns.addArrangedSubview(pdfColumn); columns.addArrangedSubview(tabs)
+        columns.autosaveName = "PaperReaderSplit"; columns.setAccessibilityLabel("原文与阅读面板分隔条")
+        pdfColumn.widthAnchor.constraint(greaterThanOrEqualToConstant: 280).isActive = true
+        tabs.widthAnchor.constraint(greaterThanOrEqualToConstant: 360).isActive = true
+        statusLabel.textColor = .secondaryLabelColor; statusLabel.maximumNumberOfLines = 1
+        let stack = NSStackView(views: [libraryRow, actions, columns, statusLabel])
+        stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 10; stack.translatesAutoresizingMaskIntoConstraints = false
         window.contentView!.addSubview(stack)
-        NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: window.contentView!.leadingAnchor, constant: 22), stack.trailingAnchor.constraint(equalTo: window.contentView!.trailingAnchor, constant: -22), stack.topAnchor.constraint(equalTo: window.contentView!.topAnchor, constant: 22), stack.bottomAnchor.constraint(equalTo: window.contentView!.bottomAnchor, constant: -16)])
-        for view in [header, libraryRow, actions, titleLabel, scopeRow, columns, statusLabel] { view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true }
+        NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: window.contentView!.leadingAnchor, constant: 14), stack.trailingAnchor.constraint(equalTo: window.contentView!.trailingAnchor, constant: -14), stack.topAnchor.constraint(equalTo: window.contentView!.topAnchor, constant: 12), stack.bottomAnchor.constraint(equalTo: window.contentView!.bottomAnchor, constant: -10)])
+        for view in [libraryRow, actions, columns, statusLabel] { view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true }
         columns.setContentHuggingPriority(.defaultLow, for: .vertical)
         busyControls = [picker, renameButton, importButton, linkButton, browserButton, scopeField, visionToggle, generateButton, askButton, quote] + quickButtons
     }
+    func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat { 280 }
+    func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat { splitView.bounds.width - 360 }
     func show() { NSApp.activate(ignoringOtherApps: true); window.makeKeyAndOrderFront(nil) }
     func windowShouldClose(_ sender: NSWindow) -> Bool { flushNotes(); sender.orderOut(nil); return false }
     @objc func openWriting() { owner?.showWindow() }
@@ -156,10 +154,12 @@ final class PaperReaderController: NSObject, NSWindowDelegate, NSTextViewDelegat
     func persist(_ record: PaperRecord) throws {
         var saved = record; saved.updatedAt = Date(); try library.save(saved)
         current = saved; papers = try library.all(); refreshPicker()
+        owner?.updatePaperIndex(saved)
     }
     func display(_ record: PaperRecord) {
         let selected = current?.id == record.id ? current! : record
         flushNotes(); let record = selected; current = record
+        owner?.updatePaperIndex(record, readAt: Date())
         scopeField.stringValue = ""
         visionToggle.state = record.pages.count > 80 ? .off : .on
         pdfView.document = record.isExcerpt ? nil : PDFDocument(url: library.pdfURL(record.id))
@@ -167,9 +167,10 @@ final class PaperReaderController: NSObject, NSWindowDelegate, NSTextViewDelegat
         questionView.string = ""
         loadingNotes = true; notesView.string = record.notes; loadingNotes = false
         let readable = record.pages.filter { $0.text.count > 40 }.count
-        titleLabel.stringValue = "\(record.title)\n" + (record.isExcerpt ? "仅选中段落 · 尚未导入全文，不推断全篇实验和结论" : "共 \(record.pages.count) 页 · 可提取文字 \(readable)/\(record.pages.count) 页 · \(record.characterCount) 字符 · 原文完整保留")
+        titleLabel.stringValue = record.isExcerpt ? "仅选段" : "\(record.pages.count) 页"
+        titleLabel.toolTip = record.isExcerpt ? "只有所选段落，尚未导入全文。" : "可提取文字 \(readable)/\(record.pages.count) 页，共 \(record.characterCount) 字符。"
         render(); refreshPicker()
-        status(record.isExcerpt ? "可直接围绕段落提问；若要理解整篇，请导入 PDF。" : (record.pages.count > 80 ? "长文已完整导入。默认用全文文字导读；图表精读请填写页码范围并开启图表。" : "论文已就绪。生成中文导读，或选中左侧原文开始细读。"))
+        status(record.isExcerpt ? "仅选段 · 可直接提问" : (record.pages.count > 80 ? "已就绪 · 长文默认仅文字；可指定页码读取图表" : "已就绪 · 选中原文可提问"))
     }
     func renderEmpty() {
         overviewView.loadHTMLString(ReadingHTML.document("<h1>从一篇论文开始</h1><p>在浏览器 PDF 页面按 <strong>⌃⌥⌘R</strong>，或点击“导入 PDF”。</p><p>导读会整理核心想法、问题与相关工作、挑战与贡献、方法、实验、结果和局限。</p><p>在浏览器选中段落后按 <strong>⌃⌥⌘D</strong>，即可打开中文细读问答。</p>"), baseURL: nil)
@@ -177,7 +178,7 @@ final class PaperReaderController: NSObject, NSWindowDelegate, NSTextViewDelegat
     }
     func render() {
         guard let record = current else { renderEmpty(); return }
-        overviewView.loadHTMLString(ReadingHTML.document(record.summary.isEmpty ? "<h1>原文已准备好</h1><p>点击“生成中文导读”，先掌握论文的完整思路。</p><p class='meta'>事实会标注 PDF 页码。图表较多时，建议保留“同时读取图表”。</p>" : ReadingHTML.markdown(record.summary)), baseURL: nil)
+        overviewView.loadHTMLString(ReadingHTML.document(record.summary.isEmpty ? "<h1>原文已准备好</h1><p>点击“生成中文导读”，先掌握论文的完整思路。</p><p class='meta'>事实会标注 PDF 页码。图表较多时，可开启“图表”。</p>" : ReadingHTML.markdown(record.summary)), baseURL: nil)
         let body = record.turns.isEmpty ? "<p class='empty'>可以问：这句话是什么意思？为什么采用这个假设？实验如何支持贡献？</p>" : "<p class='meta'>最近问答在上方 · 每次带入当前论文与最近 16 轮对话</p>" + record.turns.reversed().map { turn in
             "<section class='turn'><div class='role'>你的问题</div><p class='question'>\(ReadingHTML.inline(turn.question))</p>" + (turn.passage.isEmpty ? "" : "<blockquote>\(ReadingHTML.escape(String(turn.passage.prefix(1400))))</blockquote>") + "<div class='role'>中文解读</div>\(ReadingHTML.markdown(turn.answer))</section>"
         }.joined()

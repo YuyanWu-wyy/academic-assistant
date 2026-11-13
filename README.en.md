@@ -13,6 +13,7 @@ A native macOS companion for academic writing and reading, with a Chinese interf
 - PDF reading: main idea, problem, related work, challenges, contributions, methods, experiments, results and limitations.
 - Clickable physical PDF page references, chapter ranges and optional page images.
 - Per-paper summaries, conversations and notes; export the complete reading record to Markdown.
+- A lightweight paper index: search titles, briefs and tags, and browse connections through shared topics without storing PDFs in the index.
 - API keys stored in macOS Keychain. No third-party runtime dependencies.
 
 This is an independent Swift application that calls the DeepSeek API directly. Codex, ChatGPT and DeepSeek Harness are not required. Bring your own DeepSeek API key; API usage is billed by DeepSeek.
@@ -44,6 +45,14 @@ In **DeepSeek 设置**, enter your own [API key](https://platform.deepseek.com/a
 
 Import a public PDF or local file, then choose **生成中文导读**. For papers behind a login, download them through your authorized browser session and import the file. Browser cookies are not reused.
 
+## Paper index
+
+Open **论文索引** from the writing or reading window. Existing full-paper reading records are indexed automatically, as are papers subsequently imported or opened through the assistant. Cards contain only a title, source link, tags, a brief (up to 600 characters), and identity/timestamp metadata. The index never copies PDFs, full text, notes or conversations.
+
+Use **收藏浏览器论文** or **手动添加** to bookmark a title and URL without downloading a PDF or making an API call. Search by title, brief or topic keywords, edit cards, archive/restore them, and export Markdown. Automatic tags use local keyword aliases; briefs are extracted from existing overviews. Manual edits are preserved during subsequent synchronization.
+
+The **主题图谱** view connects papers by shared tags, not by citations or verified scientific relationships. It shows up to eight neighbors of the selected paper. No browser-history scanning is performed. The existing full-paper reading workspace continues to retain its PDFs separately.
+
 ## Scope and privacy
 
 Keys stay in Keychain. PDFs, extracted text, summaries, conversations and notes stay in `~/Library/Application Support/学术助手/Papers` until a requested model operation sends its context to DeepSeek. Enabled page images are also sent. API calls go to `https://api.deepseek.com`; this is not an offline model.
@@ -66,3 +75,7 @@ Tests use mocked model responses and synthetic PDFs, with no API key or live API
 Bundled writing and reading instructions are in `Resources/`. Optional personal overrides are read from `~/.codex/skills/academic-writing-editor/SKILL.md` and `~/.codex/skills/summarize-research-paper/SKILL.md`. These instructions are sent to the model with requests, so do not put secrets in them.
 
 See [development notes](docs/DEVELOPMENT.md) and [contribution guidelines](CONTRIBUTING.md). The application icon is AI-generated. The project is licensed under MIT; DeepSeek is a separate service governed by its own terms.
+
+### Window layout
+
+Use the green window button or Control–Command–F for full screen. Drag the center divider to adjust the reading and writing panes; their widths are remembered. The compact toolbar keeps secondary guidance in tooltips.

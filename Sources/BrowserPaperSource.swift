@@ -16,6 +16,16 @@ enum BrowserPaperSource {
         }
         return nil
     }
+    static func documentTitle(_ app: NSRunningApplication) -> String? {
+        guard isBrowser(app), AXIsProcessTrusted() else { return nil }
+        let root = AXUIElementCreateApplication(app.processIdentifier)
+        AXUIElementSetMessagingTimeout(root, 0.25)
+        guard let window = attribute(root, kAXFocusedWindowAttribute) ?? attribute(root, kAXMainWindowAttribute),
+              CFGetTypeID(window) == AXUIElementGetTypeID(),
+              var title = attribute(window as! AXUIElement, kAXTitleAttribute) as? String else { return nil }
+        for suffix in [" - Google Chrome", " — Mozilla Firefox", " - Microsoft Edge", " - Brave", " — Safari"] where title.hasSuffix(suffix) { title = String(title.dropLast(suffix.count)) }
+        return String(title.trimmingCharacters(in: .whitespacesAndNewlines).prefix(400))
+    }
     static func documentURL(_ app: NSRunningApplication) -> URL? {
         guard isBrowser(app), AXIsProcessTrusted() else { return nil }
         let root = AXUIElementCreateApplication(app.processIdentifier)

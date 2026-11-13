@@ -2,7 +2,7 @@ import Foundation
 import Security
 
 enum KeyStore {
-    static let service = "io.github.YuyanWu-wyy.AcademicAssistant"
+    static let service = Bundle.main.bundleIdentifier ?? "io.github.YuyanWu-wyy.AcademicAssistant"
     static let account = "deepseek-api-key"
     static var query: [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
