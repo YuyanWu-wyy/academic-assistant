@@ -47,61 +47,66 @@ import Foundation
         let noEvidence = try PaperMemory.validated(PaperMemory.json(MemoryAnswer(claims: [], relations: [], limitation: "没有足够的实验资料。")), sources: [sa])
         check(noEvidence.claims.isEmpty, "Insufficient evidence can produce an explicit unanswered result")
 
-        var many = (0..<84).map { IndexedPaper(title: "Unrelated old paper \($0)", sourceURL: nil) }; many.append(a)
-        var calls = 0, catalogSeen = 0
+        var many = (0..<3000).map { IndexedPaper(title: "Unrelated astronomy catalog \($0)", sourceURL: nil) }; many.append(a)
+        var calls = 0, sourceLoads = 0
         let service = PaperMemoryService { messages in
             calls += 1
             let input = messages[1]["content"] as! String
-            if let marker = input.range(of: "CATALOG：") {
-                let cards = try PaperMemory.decode([PaperMemoryService.CatalogCard].self, String(input[marker.upperBound...]))
-                catalogSeen += cards.count
-                check(!input.contains("PRIVATE_") && !input.contains("个人笔记"), "Retrieval sends metadata only, before loading selected reading records")
-                return try PaperMemory.json(PaperMemoryService.Selection(ids: cards.contains { $0.id == a.id } ? [a.id] : []))
-            }
-            check(input.contains("相机图像") && !input.contains("PRIVATE_"), "Answer stage receives selected material without full PDF content")
+            check(input.contains("相机图像") && !input.contains("PRIVATE_") && !input.contains("Unrelated astronomy"), "One answer request contains only locally selected evidence, not the full catalog or PDFs")
             return try PaperMemory.json(MemoryAnswer(claims: [MemoryClaim(text: "你可能在找这篇视觉触觉论文。", citations: [ca])], relations: [], limitation: "依据卡片和已有导读。"))
         }
-        let first = try await service.ask(question: "之前哪篇用摄像头测接触力？", papers: many, turns: [], record: { id in id == ra.id ? ra : nil })
-        check(catalogSeen == 85 && calls == 4 && first.sources.map(\.id) == [a.id], "Semantic retrieval scans every catalog batch, including a paper beyond the first 80")
+        let first = try await service.ask(question: "之前哪篇用摄像头测接触力？", papers: many, turns: [], record: { id in sourceLoads += 1; return id == ra.id ? ra : nil })
+        check(calls == 1 && sourceLoads == 1 && first.sources.map(\.id) == [a.id], "A 3001-paper library retrieves an old paper locally with one model call and one record load")
+        var generic = IndexedPaper(title: "Attention Is All You Need", sourceURL: nil); generic.brief = "这篇论文提出 Transformer，使用注意力机制。"
+        let precise = MemoryLocalSearch.retrieve(question: "之前哪篇论文用相机估计接触力？", papers: [a,generic], turns: [], focus: nil, limit: 3)
+        check(precise.map(\.id) == [a.id], "Generic Chinese paper phrases do not upload unrelated candidates")
+        check(MemoryLocalSearch.terms("VibFM的方法").contains("vibfm"), "Mixed Chinese and English queries preserve named model terms")
         var followupSawHistory = false
         let followup = PaperMemoryService { messages in
             let input = messages[1]["content"] as! String
-            followupSawHistory = input.contains("之前哪篇用摄像头") && input.contains("它们的方法有什么区别")
-            if input.contains("CATALOG：") { return try PaperMemory.json(PaperMemoryService.Selection(ids: [a.id, b.id])) }
+            followupSawHistory = input.contains("之前哪篇用摄像头") && input.contains("相机和电容的方法有什么区别")
             return raw
         }
-        let second = try await followup.ask(question: "它们的方法有什么区别？", papers: [a,b], turns: [first], record: { id in id == ra.id ? ra : rb })
-        check(followupSawHistory && second.sources.count == 2, "Follow-up questions resolve earlier references and gather both papers")
+        let second = try await followup.ask(question: "相机和电容的方法有什么区别？", papers: [a,b], turns: [first], record: { id in id == ra.id ? ra : rb })
+        check(followupSawHistory && second.sources.count == 2, "Comparison gathers locally matched papers and includes bounded conversation context")
+        let pronouns = MemoryLocalSearch.retrieve(question: "它们各有什么局限？", papers: [a,b], turns: [second], focus: nil, limit: 3)
+        check(Set(pronouns.map(\.id)) == Set([a.id,b.id]), "Pronoun follow-ups retain the preceding papers without a model retrieval call")
         var focusedCalls = 0
-        let focused = PaperMemoryService { messages in
-            focusedCalls += 1; check(!(messages[1]["content"] as! String).contains("CATALOG："), "Explicit single-paper scope skips whole-library retrieval")
+        let focused = PaperMemoryService { _ in
+            focusedCalls += 1
             return try PaperMemory.json(MemoryAnswer(claims: [MemoryClaim(text: "使用已知负载标定。", citations: [ca])], relations: [], limitation: ""))
         }
         let focusedTurn = try await focused.ask(question: "如何标定？", papers: [a,b], turns: [], focus: a.id, onlyFocus: true, record: { _ in ra })
         check(focusedCalls == 1 && focusedTurn.sources.map(\.id) == [a.id], "Single-paper questions cannot silently pull in another paper")
-        var repairCalls = 0
-        let repairing = PaperMemoryService { messages in
-            repairCalls += 1
-            if (messages[1]["content"] as! String).contains("CATALOG：") { return try PaperMemory.json(PaperMemoryService.Selection(ids: [a.id])) }
-            if repairCalls == 2 { return "{\"claims\":[],\"relations\":[]}" }
-            check(messages.count == 4, "A malformed answer gets one bounded correction request with the same source context")
-            return idOnly
-        }
-        let repaired = try await repairing.ask(question: "它用什么信号", papers: [a], turns: [], record: { _ in ra })
-        check(repairCalls == 3 && repaired.answer.claims[0].citations[0].quote == ca.quote, "Corrected answers retain locally bound evidence without repeating retrieval")
+        var malformedCalls = 0
+        let malformed = PaperMemoryService { _ in malformedCalls += 1; return "{\"claims\":[],\"relations\":[]}" }
+        do { _ = try await malformed.ask(question: "相机", papers: [a], turns: [], record: { _ in ra }); fatalError("Accepted malformed answer") } catch { }
+        check(malformedCalls == 1, "Malformed responses never trigger an automatic additional paid request")
         var archived = b; archived.archived = true
-        let rejectsArchived = PaperMemoryService { _ in try PaperMemory.json(PaperMemoryService.Selection(ids: [b.id])) }
-        do { _ = try await rejectsArchived.ask(question: "找论文", papers: [a,archived], turns: [], record: { _ in nil }); fatalError("Allowed archived paper") } catch { print("PASS: Retrieval cannot reintroduce archived or unknown papers") }
-        var emptyCalls = 0
-        let empty = PaperMemoryService { _ in emptyCalls += 1; return "{\"ids\":[]}" }
-        let missing = try await empty.ask(question: "找天文学论文", papers: [a,b], turns: [], record: { _ in fatalError("Loaded non-selected paper") })
-        check(emptyCalls == 1 && missing.sources.isEmpty && !missing.answer.limitation.isEmpty, "No-match searches do not call answer generation or load unrelated notes")
-        let cancellingService = PaperMemoryService { _ in
+        let noNetwork = PaperMemoryService { _ in fatalError("Unexpected model call") }
+        let archivedTurn = try await noNetwork.ask(question: "如何标定", papers: [a,archived], turns: [], focus: b.id, onlyFocus: true, record: { _ in fatalError("Loaded archived record") })
+        check(archivedTurn.sources.isEmpty, "Archived papers cannot be reintroduced through a focused question")
+        let missing = try await noNetwork.ask(question: "天文学", papers: [a,b], turns: [], record: { _ in fatalError("Loaded non-selected paper") })
+        check(missing.sources.isEmpty && !missing.answer.limitation.isEmpty, "No-match searches need zero model calls and load no unrelated records")
+        let cancelled = Task {
             withUnsafeCurrentTask { $0?.cancel() }
-            return try PaperMemory.json(PaperMemoryService.Selection(ids: [a.id]))
+            return try await noNetwork.ask(question: "相机", papers: [a], turns: [], record: { _ in fatalError("Loaded material after cancellation") })
         }
-        let cancelled = Task { try await cancellingService.ask(question: "cancel", papers: [a], turns: [], record: { _ in fatalError("Loaded material after cancellation") }) }
-        do { _ = try await cancelled.value; fatalError("Ignored cancellation") } catch is CancellationError { print("PASS: Cancellation after retrieval prevents loading notes and generating an answer") }
+        do { _ = try await cancelled.value; fatalError("Ignored cancellation") } catch is CancellationError { print("PASS: Cancelled work cannot load records or call the model") }
+        let cancelsAfterAnswer = PaperMemoryService { _ in withUnsafeCurrentTask { $0?.cancel() }; return idOnly }
+        let stopped = Task { try await cancelsAfterAnswer.ask(question: "相机", papers: [a], turns: [], record: { _ in ra }) }
+        do { _ = try await stopped.value; fatalError("Accepted cancelled answer") } catch is CancellationError { print("PASS: Cancellation during a model request prevents accepting the result") }
+
+        var huge = ra; huge.summary = String(repeating: "相机测接触力，标定误差。\n\n", count: 2500)
+        var pool = (0..<20).map { IndexedPaper(title: "Camera force calibration \($0)", sourceURL: nil) }
+        for i in pool.indices { pool[i].readingID = huge.id }
+        let compact = try PaperMemoryService.prepare(question: "相机接触力", papers: pool, turns: Array(repeating: second, count: 100), record: { _ in huge })
+        let detailed = try PaperMemoryService.prepare(question: "相机接触力", papers: pool, turns: [], depth: .detailed, record: { _ in huge })
+        check(compact.sources.count == 3 && compact.excerptCharacters <= 6000 && compact.history.count <= 2000, "Default context caps papers, excerpts and conversation independently of library size")
+        check(detailed.sources.count == 6 && detailed.excerptCharacters <= 30000 && detailed.excerptCharacters > compact.excerptCharacters, "Only explicit detailed mode expands the evidence budget")
+        let export = try PaperMemoryService.prepare(question: "相机标定", papers: [a,b], turns: [], focus: a.id, onlyFocus: true, record: { _ in ra }).markdown()
+        check(export.contains("[P1:E2]") && export.contains(a.title) && export.contains("相机图像") && !export.contains("PRIVATE_") && !export.contains(b.title), "Portable Markdown keeps the question, selected evidence and source labels without private links, PDFs or unrelated papers")
+        check(PaperMemory.source(a, record: huge, question: "相机", characterLimit: 2000).fingerprint == PaperMemory.source(a, record: huge, question: "相机", characterLimit: 5000).fingerprint, "Budget changes do not invalidate unchanged stored relationships")
 
         let graph = try PaperRelationStore(root: root)
         try graph.merge(second, activeIDs: Set([a.id,b.id])); try graph.merge(second, activeIDs: Set([a.id,b.id]))

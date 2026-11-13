@@ -1,4 +1,5 @@
 import Cocoa
+import UniformTypeIdentifiers
 
 extension PaperIndexController {
     func knowledgeStore() throws -> PaperRelationStore {
@@ -30,6 +31,7 @@ extension PaperIndexController {
     }
     @objc func newConversation() {
         cancelMemory(); memoryTurns = []; memoryFocus = nil; scopeLabel.stringValue = "全部未归档论文"
+        memoryDepth.selectItem(at: 0)
         questionField.stringValue = ""; memoryView.loadHTMLString(PaperMemoryHTML.conversation([]), baseURL: nil)
         tabs.selectTabViewItem(withIdentifier: "memory"); window.makeFirstResponder(questionField)
         statusLabel.stringValue = "新对话 · 可描述印象，也可比较多篇论文"
@@ -51,7 +53,9 @@ extension PaperIndexController {
         startMemory(question, focus: paper.id, onlyFocus: false)
     }
     func memoryBusy(_ value: Bool) {
-        questionField.isEnabled = !value; askButton.title = value ? "取消" : "发送"
+        questionField.isEnabled = !value; askButton.title = value ? "取消" : "DeepSeek 回答"
+        memoryDepth.isEnabled = !value
+        for item in [localSearchButton, copyMemoryButton, exportMemoryButton] { item?.isEnabled = !value }
         relationButton.isEnabled = !value && selected != nil; askCurrentButton.isEnabled = !value && selected != nil
     }
     func cancelMemory() {
@@ -67,14 +71,17 @@ extension PaperIndexController {
         let id = UUID(); memoryRequest = id; memoryBusy(true); tabs.selectTabViewItem(withIdentifier: "memory")
         statusLabel.stringValue = "正在准备论文库…"
         let model = owner?.model ?? "deepseek-flash"
+        let depth = MemoryDepth(rawValue: memoryDepth.indexOfSelectedItem) ?? .compact
         memoryTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let savedKey = try await Task.detached(priority: .userInitiated) { try KeyStore.read() }.value
-                try Task.checkCancellation()
-                guard let key = savedKey, !key.isEmpty else { throw AssistantFailure(message: "请先在 DeepSeek 设置中连接 API Key。") }
-                let service = PaperMemoryService { messages in try await DeepSeekClient().reading(messages: messages, key: key, model: model, maxTokens: 10000, jsonOutput: true) }
-                let turn = try await service.ask(question: question, papers: papers, turns: history, focus: focus, onlyFocus: onlyFocus, record: self.readingRecord) { text in
+                let service = PaperMemoryService { messages in
+                    let savedKey = try await Task.detached(priority: .userInitiated) { try KeyStore.read() }.value
+                    try Task.checkCancellation()
+                    guard let key = savedKey, !key.isEmpty else { throw AssistantFailure(message: "请先在 DeepSeek 设置中连接 API Key。") }
+                    return try await DeepSeekClient().reading(messages: messages, key: key, model: model, maxTokens: depth.outputLimit, jsonOutput: true)
+                }
+                let turn = try await service.ask(question: question, papers: papers, turns: history, focus: focus, onlyFocus: onlyFocus, depth: depth, record: self.readingRecord) { text in
                     if self.memoryRequest == id { self.statusLabel.stringValue = text }
                 }
                 guard !Task.isCancelled, self.memoryRequest == id else { return }
@@ -84,7 +91,8 @@ extension PaperIndexController {
                 self.memoryView.loadHTMLString(PaperMemoryHTML.conversation(self.memoryTurns), baseURL: nil)
                 do {
                     if !turn.answer.relations.isEmpty { try self.knowledgeStore().merge(turn, activeIDs: activeIDs) }
-                    self.statusLabel.stringValue = "已回答 · 可继续追问，点击论文名称查看卡片"
+                    let size = turn.sources.reduce(0) { $0 + $1.excerpts.reduce(0) { $0 + $1.text.count } }
+                    self.statusLabel.stringValue = turn.sources.isEmpty ? "未找到匹配 · 未调用模型" : "\(depth.title) · \(turn.sources.count) 篇 · \(size) 字符摘录 · 可继续追问"
                 } catch { self.statusLabel.stringValue = "已回答；关系未能保存：\(error.localizedDescription)" }
                 self.renderGraph()
             } catch {
@@ -94,5 +102,44 @@ extension PaperIndexController {
             }
             if self.memoryRequest == id { self.memoryTask = nil; self.memoryBusy(false) }
         }
+    }
+
+    func preparedMemoryContext() throws -> MemoryContext {
+        owner?.reader?.flushNotes()
+        let question = questionField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let raw = question.isEmpty ? (memoryTurns.last?.question ?? "") : question
+        let depth = MemoryDepth(rawValue: memoryDepth.indexOfSelectedItem) ?? .compact
+        return try PaperMemoryService.prepare(question: raw, papers: store.papers, turns: memoryTurns, focus: memoryFocus, onlyFocus: memoryFocus != nil, depth: depth, record: readingRecord)
+    }
+    @objc func findMemoryLocally() {
+        let question = questionField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !question.isEmpty, question.count <= 2000 else { statusLabel.stringValue = "先输入要找的论文线索。"; return }
+        let depth = MemoryDepth(rawValue: memoryDepth.indexOfSelectedItem) ?? .compact
+        let papers = memoryFocus.map { id in store.papers.filter { $0.id == id && !$0.archived } } ?? MemoryLocalSearch.retrieve(question: question, papers: store.papers, turns: memoryTurns, focus: nil, limit: depth.paperLimit)
+        let body = "<h2>本地检索</h2><p class='meta'>按标题、摘要、主题和常用中英文词匹配，未调用模型。\(papers.isEmpty ? "未找到匹配，可换关键词或补充卡片。" : "候选论文如下，可继续提问或复制材料。")</p>" + papers.map { "<h3>\(PaperMemoryHTML.paperLink($0.id, title: $0.title))</h3><p>\(ReadingHTML.escape($0.brief))</p>" }.joined()
+        memoryView.loadHTMLString(ReadingHTML.document(body), baseURL: nil)
+        statusLabel.stringValue = "本地找到 \(papers.count) 篇候选 · 0 次模型调用"
+    }
+    @objc func copyMemoryContext() {
+        do {
+            let context = try preparedMemoryContext()
+            guard !context.sources.isEmpty else { statusLabel.stringValue = "未找到相关论文，没有复制。请补充关键词。"; return }
+            NSPasteboard.general.clearContents(); NSPasteboard.general.setString(context.markdown(), forType: .string)
+            statusLabel.stringValue = "已复制 \(context.sources.count) 篇、\(context.excerptCharacters) 字符摘录 · 可粘贴到其他工具 · 未调用模型"
+        } catch { statusLabel.stringValue = error.localizedDescription }
+    }
+    @objc func exportMemoryContext() {
+        do {
+            let context = try preparedMemoryContext()
+            guard !context.sources.isEmpty else { statusLabel.stringValue = "未找到相关论文，请补充关键词。"; return }
+            let panel = NSSavePanel(); panel.allowedContentTypes = [UTType(filenameExtension: "md") ?? .plainText]; panel.nameFieldStringValue = "论文提问材料.md"
+            panel.beginSheetModal(for: window) { [weak self] response in
+                guard response == .OK, let self, let url = panel.url else { return }
+                do {
+                    try context.markdown().write(to: url, atomically: true, encoding: .utf8)
+                    self.statusLabel.stringValue = "已导出提问材料 · 可交给 Claude Code、Codex 或 ChatGPT · 未调用模型"
+                } catch { self.statusLabel.stringValue = error.localizedDescription }
+            }
+        } catch { statusLabel.stringValue = error.localizedDescription }
     }
 }

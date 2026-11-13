@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.6.0 — 2026-11-13
+
+- Retrieve papers locally without uploading the entire catalog; library size no longer scales model requests or context limits.
+- Default to compact evidence, with explicit detailed mode, bounded history/output and no automatic paid retries.
+- Add zero-call local search and portable Markdown copy/export for use with other AI tools.
+- Keep stored relations and existing reading data intact; add large-catalog and budget regression tests.
+
 ## 1.5.0 — 2026-11-13
 
 - Find remembered papers through natural-language catalog retrieval, then ask follow-up questions or compare papers using existing overviews and notes.

@@ -11,7 +11,7 @@ enum PaperMemoryHTML {
     }
     static func conversation(_ turns: [MemoryTurn]) -> String {
         guard !turns.isEmpty else {
-            return ReadingHTML.document("<h2>问读过的论文</h2><p>之前哪篇论文用视觉估计接触力？</p><p>它是怎么做实验的？这些方法有什么区别？</p><p class='meta'>从卡片找论文，再查已有导读和笔记。回答附来源；资料不足时会说明。</p>")
+            return ReadingHTML.document("<h2>问读过的论文</h2><p>之前哪篇论文用视觉估计接触力？</p><p>它是怎么做实验的？这些方法有什么区别？</p><p class='meta'>先本地找论文；需要回答时只用少量相关摘录。也可复制材料到其他工具。</p>")
         }
         let body = turns.reversed().map { turn in
             var html = "<section class='turn'><p class='question'>\(ReadingHTML.escape(turn.question))</p>"

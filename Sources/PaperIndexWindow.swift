@@ -21,6 +21,10 @@ final class PaperIndexController: NSObject, NSWindowDelegate, NSTableViewDataSou
     let tabs = NSTabView()
     let questionField = NSTextField()
     let scopeLabel = label("全部未归档论文", size: 12)
+    let memoryDepth = NSPopUpButton()
+    var localSearchButton: NSButton!
+    var copyMemoryButton: NSButton!
+    var exportMemoryButton: NSButton!
     var askButton: NSButton!
     var relationButton: NSButton!
     var newConversationButton: NSButton!
@@ -101,18 +105,27 @@ final class PaperIndexController: NSObject, NSWindowDelegate, NSTableViewDataSou
         memoryView = WKWebView(frame: .zero, configuration: memoryConfig); memoryView.navigationDelegate = self
         questionField.placeholderString = "描述你记得的论文，或继续追问、比较…"; questionField.setAccessibilityLabel("论文库问题")
         questionField.target = self; questionField.action = #selector(askMemory)
-        askButton = button("发送", self, #selector(askMemory)); askButton.bezelColor = .systemTeal
+        askButton = button("DeepSeek 回答", self, #selector(askMemory)); askButton.bezelColor = .systemTeal
         newConversationButton = button("新对话", self, #selector(newConversation))
         let scopeRow = NSStackView(views: [scopeLabel, spacer(), newConversationButton]); scopeRow.orientation = .horizontal
         let questionRow = NSStackView(views: [questionField, askButton]); questionRow.orientation = .horizontal; questionRow.spacing = 8
         questionField.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        let privacy = label("提问时向 DeepSeek 发送候选卡片与相关导读、笔记。对话仅保留在本次运行中。", size: 11); privacy.textColor = .secondaryLabelColor
-        let memoryColumn = NSStackView(views: [scopeRow, memoryView!, questionRow, privacy]); memoryColumn.orientation = .vertical; memoryColumn.spacing = 10
-        for v in [scopeRow, memoryView!, questionRow, privacy] { v.widthAnchor.constraint(equalTo: memoryColumn.widthAnchor).isActive = true }
+        memoryDepth.addItems(withTitles: ["省量 · 最多 3 篇", "深入 · 最多 6 篇"])
+        memoryDepth.setAccessibilityLabel("论文库分析深度")
+        memoryDepth.toolTip = "省量：每篇最多 2,000 字符摘录；深入：每篇最多 5,000 字符。另附问题、简短历史和回答规则。没有 PDF 全文。"
+        localSearchButton = button("本地找论文", self, #selector(findMemoryLocally))
+        copyMemoryButton = button("复制提问材料", self, #selector(copyMemoryContext))
+        exportMemoryButton = button("导出材料", self, #selector(exportMemoryContext))
+        copyMemoryButton.toolTip = "本地整理，可粘贴到 Claude Code、Codex、ChatGPT 或其他工具；不调用 DeepSeek。"
+        let memoryTools = NSStackView(views: [memoryDepth, localSearchButton, spacer(), copyMemoryButton, exportMemoryButton]); memoryTools.orientation = .horizontal; memoryTools.spacing = 6
+        let privacy = label("本地检索不耗 token；仅“DeepSeek 回答”发送相关摘录。复制材料可交给其他工具。", size: 11); privacy.textColor = .secondaryLabelColor
+        let memoryColumn = NSStackView(views: [scopeRow, memoryView!, memoryTools, questionRow, privacy]); memoryColumn.orientation = .vertical; memoryColumn.spacing = 10
+        for v in [scopeRow, memoryView!, memoryTools, questionRow, privacy] { v.widthAnchor.constraint(equalTo: memoryColumn.widthAnchor).isActive = true }
         memoryView.heightAnchor.constraint(greaterThanOrEqualToConstant: 200).isActive = true
         let memoryTab = NSTabViewItem(identifier: "memory"); memoryTab.label = "问论文库"; memoryTab.view = memoryColumn; tabs.addTabViewItem(memoryTab)
         memoryView.loadHTMLString(PaperMemoryHTML.conversation([]), baseURL: nil)
         let columns = NSStackView(views: [left, tabs]); columns.orientation = .horizontal; columns.spacing = 18
+        tabs.widthAnchor.constraint(equalTo: columns.widthAnchor, constant: -378).isActive = true
         left.heightAnchor.constraint(equalTo: columns.heightAnchor).isActive = true
         listScroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 280).isActive = true
         tabs.heightAnchor.constraint(equalTo: columns.heightAnchor).isActive = true
