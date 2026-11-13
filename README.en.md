@@ -51,7 +51,7 @@ Open **论文索引** from the writing or reading window. Existing full-paper re
 
 Use **收藏浏览器论文** or **手动添加** to bookmark a title and URL without downloading a PDF or making an API call. Search by title, brief or topic keywords, edit cards, archive/restore them, and export Markdown. Automatic tags use local keyword aliases; briefs are extracted from existing overviews. Manual edits are preserved during subsequent synchronization.
 
-The **主题图谱** view connects papers by shared tags, not by citations or verified scientific relationships. It shows up to eight neighbors of the selected paper. No browser-history scanning is performed. The existing full-paper reading workspace continues to retain its PDFs separately.
+The **关联图谱** view initially shows up to eight shared-tag neighbors. **分析这篇的关联** generates typed problem/method/result associations with inspectable evidence, as described below. These are not citations or independently verified scientific relationships. No browser-history scanning is performed. The existing full-paper reading workspace continues to retain its PDFs separately.
 
 ## Scope and privacy
 
