@@ -79,3 +79,11 @@ See [development notes](docs/DEVELOPMENT.md) and [contribution guidelines](CONTR
 ### Window layout
 
 Use the green window button or Control–Command–F for full screen. Drag the center divider to adjust the reading and writing panes; their widths are remembered. The compact toolbar keeps secondary guidance in tooltips.
+
+### Ask your paper library
+
+Use **论文索引 → 问论文库** to find a remembered paper using a natural-language description, follow up on its content, or compare methods and experiments. Retrieval scans every active card in batches and then uses existing overviews and personal notes from up to seven candidates. Answers link to cards and expose short evidence quotes; **问这篇** limits a conversation to one paper.
+
+The relationship graph can infer shared problems, similar or different methods, and result comparisons. Both papers must have matching evidence excerpts. Relations persist locally with source fingerprints; source edits invalidate stale edges. These are AI interpretations of existing material, not verified citations or causal claims. With only a title, detailed questions may remain unanswered.
+
+Questions use DeepSeek API calls. Catalog retrieval sends title/tag/brief metadata; generation sends selected overview/note excerpts (up to 20,000 characters per paper), without PDF text or images. The card’s source URL or local path is omitted; text written in the selected notes is included. Short relations live in `PaperIndex/relations.json`; conversation history lasts only for the app session. No additional PDFs are stored.

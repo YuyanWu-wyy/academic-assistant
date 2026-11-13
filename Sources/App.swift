@@ -178,7 +178,7 @@ class AssistantApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextVie
     @objc func toggleFullScreen() { NSApp.keyWindow?.toggleFullScreen(nil) }
     func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat { 260 }
     func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat { splitView.bounds.width - 260 }
-    @objc func quit() { activeTask?.cancel(); validationTask?.cancel(); reader?.cancel(); reader?.flushNotes(); NSApp.terminate(nil) }
+    @objc func quit() { activeTask?.cancel(); validationTask?.cancel(); reader?.cancel(); reader?.flushNotes(); indexWindow?.cancelMemory(); NSApp.terminate(nil) }
     func applicationWillTerminate(_ notification: Notification) { reader?.flushNotes() }
     @objc func showReader() {
         do { if reader == nil { reader = try PaperReaderController(owner: self) }; reader?.show() }

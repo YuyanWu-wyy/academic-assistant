@@ -13,6 +13,9 @@ The application uses Swift in Swift 5 language mode and macOS system frameworks 
 | `Sources/ReadingHTML.swift` | Escaped Markdown rendering and local page links |
 | `Sources/PaperIndex.swift` | Metadata-only cards, keyword aliases, search, deduplication, archive state and topic graph |
 | `Sources/PaperIndexWindow.swift` | Index search/list UI, editable cards, browser bookmarks and graph navigation |
+| `Sources/PaperMemory.swift` | Batched semantic catalog retrieval, source assembly, evidence validation and persistent typed relations |
+| `Sources/PaperMemoryHTML.swift` | Linked Q&A, inspectable quotes and typed relationship graph |
+| `Sources/PaperMemoryWindow.swift` | Conversation scope, cancellation, reading-record reuse and graph refresh |
 | `Resources/` | Standalone app metadata, icon, instructions and user guide |
 | `Tests/` | Offline tests and synthetic PDF generator |
 | `scripts/` | Build and test entry points |
@@ -25,7 +28,7 @@ The public bundle identifier and Keychain service are `io.github.YuyanWu-wyy.Aca
 
 To maintain an existing custom installation, `APP_BUNDLE_ID` can override the build's identifier. Keychain uses the running bundle's identifier as its service. Do not install a second copy while the original is running: the global shortcuts are shared. A changed ad-hoc signature can require macOS permissions to be renewed.
 
-`IndexedPaper` intentionally has no PDF, page text, notes or conversation fields. `PaperIndexStore` writes only this bounded card schema. The index sync is idempotent, preserves manual edits and archive state, and reports corrupt-file errors instead of replacing the file with an empty index. Graph edges are deterministic shared-tag matches, not model-inferred citations.
+`IndexedPaper` intentionally has no PDF, page text, notes or conversation fields. `PaperIndexStore` writes only this bounded card schema. The index sync is idempotent, preserves manual edits and archive state, and reports corrupt-file errors instead of replacing the file with an empty index. The fallback topic graph uses deterministic shared-tag matches. Content relations are model-inferred problem/method/result associations with supporting excerpts copied locally from identified source paragraphs; they never claim to be citation edges. `PaperRelationStore` persists these separately and fingerprints the underlying card/overview/notes so edits invalidate stale relationships. Library conversations are session-only. Retrieval considers every active card in batches before loading only selected reading records; PDF text/images and card source URLs are excluded from model payloads. Identifier validation and local excerpt binding establish provenance, not semantic entailment. Model-transcribed quotes are not used. Library requests enable [DeepSeek JSON output](https://api-docs.deepseek.com/guides/json_mode/) and retry one malformed answer with the same evidence before surfacing an error.
 
 Manual checks for a release: selected text in a browser editor and PDF; P/R/D shortcuts; direct and local PDF import; model connection; preview/copy; page links; notes and conversations after restart. These UI checks require the user's own permissions and, for model calls, their own API account.
 

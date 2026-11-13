@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.5.0 — 2026-11-13
+
+- Find remembered papers through natural-language catalog retrieval, then ask follow-up questions or compare papers using existing overviews and notes.
+- Show clickable paper sources and locally bound supporting excerpts; reject mismatched source identifiers. Constrain structured API output and allow one bounded format/source correction.
+- Save typed, evidence-backed content relations locally, invalidate changed sources and exclude archived papers.
+- Add explicit single-paper scope, cancellation and session-only conversation history without additional PDF storage.
+- Add offline integration coverage for retrieval, follow-ups, evidence validation and graph persistence.
+
 ## 1.4.0 — 2026-11-13
 
 - Simplify the reader toolbar and remove introductory slogans.

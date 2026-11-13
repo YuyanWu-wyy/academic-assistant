@@ -17,6 +17,20 @@ final class PaperIndexController: NSObject, NSWindowDelegate, NSTableViewDataSou
     let countLabel = label("", size: 12)
     let statusLabel = label("", size: 12)
     var graphView: WKWebView!
+    var memoryView: WKWebView!
+    let tabs = NSTabView()
+    let questionField = NSTextField()
+    let scopeLabel = label("全部未归档论文", size: 12)
+    var askButton: NSButton!
+    var relationButton: NSButton!
+    var newConversationButton: NSButton!
+    var askCurrentButton: NSButton!
+    var memoryTask: Task<Void, Never>?
+    var memoryRequest = UUID()
+    var memoryTurns: [MemoryTurn] = []
+    var memoryFocus: UUID?
+    var relationStore: PaperRelationStore?
+
     var archiveButton: NSButton!
     var saveButton: NSButton!
     var openButton: NSButton!
@@ -66,17 +80,38 @@ final class PaperIndexController: NSObject, NSWindowDelegate, NSTableViewDataSou
         saveButton = button("保存卡片", self, #selector(saveCard)); saveButton.bezelColor = .systemTeal
         openButton = button("打开原文", self, #selector(openSource))
         readingButton = button("继续精读", self, #selector(continueReading))
+        askCurrentButton = button("问这篇", self, #selector(askCurrent))
         archiveButton = button("移到已归档", self, #selector(archivePaper))
-        let actions = NSStackView(views: [saveButton, openButton, readingButton, spacer(), archiveButton]); actions.orientation = .horizontal; actions.spacing = 6
+        let actions = NSStackView(views: [saveButton, openButton, readingButton, askCurrentButton, spacer(), archiveButton]); actions.orientation = .horizontal; actions.spacing = 6
         briefView.toolTip = "摘自已有中文导读；手动保存后，自动同步会保留你的编辑。"
         let card = NSStackView(views: [label("论文标题", weight: .semibold), titleField, label("原文链接", weight: .semibold), linkField, label("主题标签", weight: .semibold), tagsField, label("简短摘要 · 最多 600 字符", weight: .semibold), briefScroll, actions])
         card.orientation = .vertical; card.alignment = .leading; card.spacing = 10
         for v in [titleField, linkField, tagsField, briefScroll, actions] { v.widthAnchor.constraint(equalTo: card.widthAnchor).isActive = true }
         let config = WKWebViewConfiguration(); config.websiteDataStore = .nonPersistent(); config.defaultWebpagePreferences.allowsContentJavaScript = false
         graphView = WKWebView(frame: .zero, configuration: config); graphView.navigationDelegate = self
-        let tabs = NSTabView()
         let cardTab = NSTabViewItem(identifier: "card"); cardTab.label = "论文卡片"; cardTab.view = card; tabs.addTabViewItem(cardTab)
-        let graphTab = NSTabViewItem(identifier: "graph"); graphTab.label = "主题图谱"; graphTab.view = graphView; tabs.addTabViewItem(graphTab)
+        let graphTab = NSTabViewItem(identifier: "graph"); graphTab.label = "关联图谱"
+        relationButton = button("分析这篇的关联", self, #selector(analyzeRelations))
+        relationButton.toolTip = "使用已有摘要、导读和笔记，调用 DeepSeek 整理内容关联并保存简短依据。未分析时显示共同标签。"
+        let graphTools = NSStackView(views: [relationButton, spacer()]); graphTools.orientation = .horizontal
+        let graphColumn = NSStackView(views: [graphTools, graphView!]); graphColumn.orientation = .vertical; graphColumn.spacing = 8
+        for v in [graphTools, graphView!] { v.widthAnchor.constraint(equalTo: graphColumn.widthAnchor).isActive = true }
+        graphTab.view = graphColumn; tabs.addTabViewItem(graphTab)
+        let memoryConfig = WKWebViewConfiguration(); memoryConfig.websiteDataStore = .nonPersistent(); memoryConfig.defaultWebpagePreferences.allowsContentJavaScript = false
+        memoryView = WKWebView(frame: .zero, configuration: memoryConfig); memoryView.navigationDelegate = self
+        questionField.placeholderString = "描述你记得的论文，或继续追问、比较…"; questionField.setAccessibilityLabel("论文库问题")
+        questionField.target = self; questionField.action = #selector(askMemory)
+        askButton = button("发送", self, #selector(askMemory)); askButton.bezelColor = .systemTeal
+        newConversationButton = button("新对话", self, #selector(newConversation))
+        let scopeRow = NSStackView(views: [scopeLabel, spacer(), newConversationButton]); scopeRow.orientation = .horizontal
+        let questionRow = NSStackView(views: [questionField, askButton]); questionRow.orientation = .horizontal; questionRow.spacing = 8
+        questionField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let privacy = label("提问时向 DeepSeek 发送候选卡片与相关导读、笔记。对话仅保留在本次运行中。", size: 11); privacy.textColor = .secondaryLabelColor
+        let memoryColumn = NSStackView(views: [scopeRow, memoryView!, questionRow, privacy]); memoryColumn.orientation = .vertical; memoryColumn.spacing = 10
+        for v in [scopeRow, memoryView!, questionRow, privacy] { v.widthAnchor.constraint(equalTo: memoryColumn.widthAnchor).isActive = true }
+        memoryView.heightAnchor.constraint(greaterThanOrEqualToConstant: 200).isActive = true
+        let memoryTab = NSTabViewItem(identifier: "memory"); memoryTab.label = "问论文库"; memoryTab.view = memoryColumn; tabs.addTabViewItem(memoryTab)
+        memoryView.loadHTMLString(PaperMemoryHTML.conversation([]), baseURL: nil)
         let columns = NSStackView(views: [left, tabs]); columns.orientation = .horizontal; columns.spacing = 18
         left.heightAnchor.constraint(equalTo: columns.heightAnchor).isActive = true
         listScroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 280).isActive = true
@@ -129,7 +164,9 @@ final class PaperIndexController: NSObject, NSWindowDelegate, NSTableViewDataSou
         readingButton.isEnabled = paper?.readingID != nil
         openButton.title = paper?.sourceURL == nil ? "按标题找原文" : "打开原文"
         archiveButton.title = paper?.archived == true ? "恢复到索引" : "移到已归档"
-        graphView.loadHTMLString(PaperIndexHTML.graph(paper, papers: store.papers), baseURL: nil)
+        askCurrentButton.isEnabled = paper != nil && memoryTask == nil
+        relationButton.isEnabled = paper != nil && memoryTask == nil
+        renderGraph()
         statusLabel.stringValue = paper.map { "最近阅读：\(DateFormatter.localizedString(from: $0.lastReadAt, dateStyle: .medium, timeStyle: .none)) · 修改后点击“保存卡片”" } ?? "还没有匹配结果。试试更短的关键词，或收藏一篇论文。"
     }
     @objc func saveCard() {
@@ -191,7 +228,7 @@ final class PaperIndexController: NSObject, NSWindowDelegate, NSTableViewDataSou
     }
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         if action.request.url?.scheme == "paper-index", let raw = action.request.url?.host, let id = UUID(uuidString: raw), store.papers.contains(where: { $0.id == id && !$0.archived }) {
-            searchField.stringValue = ""; archiveToggle.state = .off; reload(select: id); decisionHandler(.cancel)
+            searchField.stringValue = ""; archiveToggle.state = .off; reload(select: id); tabs.selectTabViewItem(withIdentifier: "card"); decisionHandler(.cancel)
         } else { decisionHandler(action.navigationType == .linkActivated ? .cancel : .allow) }
     }
     @objc func exportIndex() {

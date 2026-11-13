@@ -86,6 +86,13 @@ struct Tests {
         let body = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
         let messages = body["messages"] as! [[String: String]]
         check(messages[0]["content"] == "quotes \" and LaTeX \\alpha", "Text and LaTeX are JSON-escaped without alteration")
+        MockProtocol.handler = { request in
+            let payload = try! JSONSerialization.jsonObject(with: bodyData(request)) as! [String: Any]
+            check((payload["response_format"] as? [String: String])?["type"] == "json_object", "Library JSON responses are constrained at the API boundary")
+            return (200, try! JSONSerialization.data(withJSONObject: fixture("{\"ids\":[]}")))
+        }
+        let structured = try await client.reading(messages: [["role":"system", "content":"Return JSON"]], key: "test-key", model: "deepseek-flash", jsonOutput: true)
+        check(structured == "{\"ids\":[]}", "Structured response reaches the caller intact")
         MockProtocol.handler = { r in (401, Data(#"{"error":{"message":"private detail"}}"#.utf8)) }
         do { _ = try await client.validate(key: "test-key"); fatalError("Accepted bad key") }
         catch { check(!error.localizedDescription.contains("private detail"), "API errors produce clear messages without echoing private content") }

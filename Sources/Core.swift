@@ -109,8 +109,9 @@ struct DeepSeekClient {
         return try decodeCompletion(checked(data, response), original: text, mode: mode)
     }
 
-    func reading(messages: [[String: Any]], key: String, model: String, maxTokens: Int = 9000) async throws -> String {
-        let body: [String: Any] = ["model": model, "messages": messages, "thinking": ["type": "disabled"], "temperature": 0.2, "max_tokens": maxTokens, "stream": false]
+    func reading(messages: [[String: Any]], key: String, model: String, maxTokens: Int = 9000, jsonOutput: Bool = false) async throws -> String {
+        var body: [String: Any] = ["model": model, "messages": messages, "thinking": ["type": "disabled"], "temperature": 0.2, "max_tokens": maxTokens, "stream": false]
+        if jsonOutput { body["response_format"] = ["type": "json_object"] }
         var r = try request(path: "chat/completions", key: key, method: "POST", body: body)
         guard (r.httpBody?.count ?? 0) <= 44 * 1024 * 1024 else { throw AssistantFailure(message: "论文图片较大，请关闭“同时读取图表”后重试，或拆分 PDF。") }
         r.timeoutInterval = 240
