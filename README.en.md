@@ -16,7 +16,7 @@ A native macOS companion for academic writing and reading, with a Chinese interf
 - A lightweight paper index: search titles, briefs and tags, and browse connections through shared topics without storing PDFs in the index.
 - API keys stored in macOS Keychain. No third-party runtime dependencies.
 
-This is an independent Swift application that calls the DeepSeek API directly. Codex, ChatGPT and DeepSeek Harness are not required. Bring your own DeepSeek API key; API usage is billed by DeepSeek.
+Choose ChatGPT subscription access through the local official Codex CLI, or the DeepSeek API. Writing, reading and library Q&A share this selection. Subscription mode never reads the DeepSeek key and never falls back to paid API calls.
 
 ## Build and run
 
@@ -34,7 +34,7 @@ cd academic-assistant
 
 Move `build/学术助手.app` into your Applications folder and open it. Builds use ad-hoc signing and are not Apple-notarized. The script does not install or replace an existing application.
 
-In **DeepSeek 设置**, enter your own [API key](https://platform.deepseek.com/api_keys) and validate the connection. Enable Accessibility for global selection shortcuts, or use manual copy/paste and PDF import without that permission.
+In **模型设置**, select **ChatGPT 订阅（经 Codex）** after signing into the official local Codex client with ChatGPT, or select DeepSeek and enter your own [API key](https://platform.deepseek.com/api_keys). Enable Accessibility for global selection shortcuts, or use manual copy/paste and PDF import without that permission.
 
 | Shortcut | Action |
 | --- | --- |
@@ -55,7 +55,7 @@ The **关联图谱** view initially shows up to eight shared-tag neighbors. **�
 
 ## Scope and privacy
 
-Keys stay in Keychain. PDFs, extracted text, summaries, conversations and notes stay in `~/Library/Application Support/学术助手/Papers` until a requested model operation sends its context to DeepSeek. Enabled page images are also sent. API calls go to `https://api.deepseek.com`; this is not an offline model.
+Keys stay in Keychain. PDFs, extracted text, summaries, conversations and notes stay in `~/Library/Application Support/学术助手/Papers` until a requested model operation sends its context to the selected service. Enabled page images are also sent. API calls go to `https://api.deepseek.com`; this is not an offline model.
 
 Related work is organized from the current paper's discussion and citations, without independent literature search. Model output can misread tables, equations, numbers or references; always verify important claims against the source. Page checks validate page bounds, not factual correctness.
 
@@ -84,10 +84,16 @@ Use the green window button or Control–Command–F for full screen. Drag the c
 
 Use **论文索引 → 问论文库** to find remembered papers, ask follow-ups, or compare methods. Retrieval runs locally over titles, tags, briefs and common bilingual keyword aliases. **本地找论文** makes no model call. Vague descriptions may need more keywords or an improved card. **问这篇** scopes the conversation to one paper.
 
-The default compact mode selects at most 3 papers and 2,000 excerpt characters per paper. Explicit detailed mode expands this to 6 papers and 5,000 characters each. Requests also include fixed rules, the question and up to 2,000 characters of recent conversation context. Character limits are not exact token counts. Output caps are 2,400 and 6,000 tokens respectively. Each answer makes at most one DeepSeek request, with no automatic paid retry; no matches means no Keychain read or API request. Library growth does not increase these per-request limits.
+The default compact mode selects at most 3 papers and 2,000 excerpt characters per paper. Explicit detailed mode expands this to 6 papers and 5,000 characters each. Requests also include fixed rules, the question and up to 2,000 characters of recent conversation context. Character limits are not exact token counts. DeepSeek output caps are 2,400 and 6,000 tokens respectively; Codex uses these as length targets, not hard output caps. Each answer makes at most one request to the selected service, with no automatic paid retry; no matches means no Keychain read or API request. Library growth does not increase these per-request limits.
 
 **复制提问材料 / 导出材料** creates portable Markdown locally, with the question, bounded context and source labels for Claude Code, Codex, ChatGPT or another tool. Nothing is sent automatically, and no third-party subscription or credentials are reused. PDF text, images and card source URLs/local paths are excluded; selected personal notes are included.
 
 **关联图谱 → 分析这篇的关联** uses compact mode to generate problem/method/result relationships with evidence from both papers. These AI interpretations are not verified citation edges. Stored relations can be browsed without API calls; source changes invalidate stale relationships. Without content relations, the graph falls back to shared tags. Use detailed mode in library Q&A when you want broader comparisons.
 
 Relations and short evidence are saved locally in `PaperIndex/relations.json`; library conversations last only for the app session. No extra PDF copies, cloud library or embeddings are created. The separate full-paper reader retains its existing explicit page/text/image scope and can use substantially more tokens.
+
+## ChatGPT subscription access
+
+The assistant runs the official local `codex exec` client and returns the answer inside its own window. Follow [official Codex sign-in](https://learn.chatgpt.com/docs/auth); API-key authentication is refused. Login checks make no inference request. Use a recent official CLI supporting `--ignore-user-config`, `--ephemeral` and structured output (tested: 0.167.0-alpha.4.1).
+
+This uses Codex subscription allowances, not unlimited usage or shared web-chat history. Quota/auth/network failures stop the request without automatic API fallback. Existing installations keep their provider until explicitly changed in settings. The subscription path is text-only, with a 160,000-character request limit; oversize requests fail without truncation. Manually select DeepSeek for page images. Codex has fixed instruction overhead in addition to bounded paper context. Claude integration remains manual copy/export.

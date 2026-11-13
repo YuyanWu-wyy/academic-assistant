@@ -53,7 +53,7 @@ final class PaperIndexController: NSObject, NSWindowDelegate, NSTableViewDataSou
         window.title = "论文索引 · 学术助手"; window.minSize = NSSize(width: 1020, height: 700)
         window.collectionBehavior.insert(.fullScreenPrimary)
         window.isReleasedWhenClosed = false; window.delegate = self; window.center()
-        let header = NSStackView(views: [label("论文索引", size: 18, weight: .semibold), spacer(), button("论文阅读", owner!, #selector(AssistantApp.showReader))])
+        let header = NSStackView(views: [label("论文索引", size: 18, weight: .semibold), spacer(), button("论文阅读", owner!, #selector(AssistantApp.showReader)), button("模型设置", owner!, #selector(AssistantApp.showSettings))])
         header.orientation = .horizontal
         searchField.placeholderString = "搜索标题、主题或摘要关键词…"
         searchField.setAccessibilityLabel("搜索论文索引"); searchField.delegate = self
@@ -96,7 +96,7 @@ final class PaperIndexController: NSObject, NSWindowDelegate, NSTableViewDataSou
         let cardTab = NSTabViewItem(identifier: "card"); cardTab.label = "论文卡片"; cardTab.view = card; tabs.addTabViewItem(cardTab)
         let graphTab = NSTabViewItem(identifier: "graph"); graphTab.label = "关联图谱"
         relationButton = button("分析这篇的关联", self, #selector(analyzeRelations))
-        relationButton.toolTip = "使用已有摘要、导读和笔记，调用 DeepSeek 整理内容关联并保存简短依据。未分析时显示共同标签。"
+        relationButton.toolTip = "使用已有摘要、导读和笔记，调用所选模型服务整理内容关联并保存简短依据。未分析时显示共同标签。"
         let graphTools = NSStackView(views: [relationButton, spacer()]); graphTools.orientation = .horizontal
         let graphColumn = NSStackView(views: [graphTools, graphView!]); graphColumn.orientation = .vertical; graphColumn.spacing = 8
         for v in [graphTools, graphView!] { v.widthAnchor.constraint(equalTo: graphColumn.widthAnchor).isActive = true }
@@ -118,7 +118,7 @@ final class PaperIndexController: NSObject, NSWindowDelegate, NSTableViewDataSou
         exportMemoryButton = button("导出材料", self, #selector(exportMemoryContext))
         copyMemoryButton.toolTip = "本地整理，可粘贴到 Claude Code、Codex、ChatGPT 或其他工具；不调用 DeepSeek。"
         let memoryTools = NSStackView(views: [memoryDepth, localSearchButton, spacer(), copyMemoryButton, exportMemoryButton]); memoryTools.orientation = .horizontal; memoryTools.spacing = 6
-        let privacy = label("本地检索不耗 token；仅“DeepSeek 回答”发送相关摘录。复制材料可交给其他工具。", size: 11); privacy.textColor = .secondaryLabelColor
+        let privacy = label("本地检索不耗额度；回答使用窗口标题中的服务。复制材料可交给其他工具。", size: 11); privacy.textColor = .secondaryLabelColor
         let memoryColumn = NSStackView(views: [scopeRow, memoryView!, memoryTools, questionRow, privacy]); memoryColumn.orientation = .vertical; memoryColumn.spacing = 10
         for v in [scopeRow, memoryView!, memoryTools, questionRow, privacy] { v.widthAnchor.constraint(equalTo: memoryColumn.widthAnchor).isActive = true }
         memoryView.heightAnchor.constraint(greaterThanOrEqualToConstant: 200).isActive = true
@@ -136,7 +136,7 @@ final class PaperIndexController: NSObject, NSWindowDelegate, NSTableViewDataSou
         columns.setContentHuggingPriority(.defaultLow, for: .vertical)
         statusLabel.textColor = .secondaryLabelColor
     }
-    func show() { reload(); NSApp.activate(ignoringOtherApps: true); window.makeKeyAndOrderFront(nil) }
+    func show() { reload(); owner?.refreshServiceUI(); NSApp.activate(ignoringOtherApps: true); window.makeKeyAndOrderFront(nil) }
     func windowShouldClose(_ sender: NSWindow) -> Bool { sender.orderOut(nil); return false }
     func numberOfRows(in tableView: NSTableView) -> Int { visible.count }
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {

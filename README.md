@@ -2,12 +2,12 @@
 
 <h1 align="center">学术助手 · Academic Assistant</h1>
 <p align="center">选中一段，润色一句；打开一篇，用中文读懂。</p>
-<p align="center">macOS 原生应用 · DeepSeek API · MIT</p>
+<p align="center">macOS 原生应用 · ChatGPT 订阅 / DeepSeek API · MIT</p>
 <p align="center"><a href="README.en.md">English</a> · <a href="Resources/使用说明.txt">完整使用说明</a> · <a href="docs/PRIVACY.md">数据与隐私</a></p>
 
 为在 Overleaf 写作、在浏览器中阅读英文论文的中文研究者设计。选中文字后按快捷键，就能预览英文润色、翻译或中文解释；导入 PDF 后，可生成中文导读、结合原文连续问答，并保存阅读笔记。
 
-这是直接调用 DeepSeek API 的独立 Swift 应用，不依赖 Codex、ChatGPT 或 DeepSeek Harness。需要自己的 DeepSeek API Key，API 用量由 DeepSeek 计费。
+独立 Swift 应用，可选择 **ChatGPT 订阅（经官方 Codex 客户端）** 或 **DeepSeek API**。写作、导读、精读和论文库问答共用一个服务选择。订阅模式不会读取 DeepSeek 密钥，也不会在失败或额度不足时自动切换到 API。
 
 ## 可以做什么
 
@@ -25,7 +25,7 @@
 
 ## 安装
 
-需要 **macOS 14 或更高版本**、Apple Command Line Tools（或 Xcode）及可连接 DeepSeek 的网络。构建没有第三方包依赖。当前以源码构建方式提供；本地签名的构建产物尚未经过 Apple 公证。
+需要 **macOS 14 或更高版本**、Apple Command Line Tools（或 Xcode）及可连接所选模型服务的网络。构建没有第三方包依赖。当前以源码构建方式提供；本地签名的构建产物尚未经过 Apple 公证。
 
 首次安装编译工具：在终端执行 `xcode-select --install`，按系统提示完成安装。
 
@@ -41,9 +41,17 @@ cd academic-assistant
 
 编译完成后，将 `build/学术助手.app` 拖到自己的“应用程序”文件夹，再双击打开。脚本只构建，不覆盖已有安装。
 
-1. 点击 **DeepSeek 设置**，输入自己的 [API Key](https://platform.deepseek.com/api_keys)，点击“保存并验证连接”。密钥保存在 macOS 钥匙串中。
+1. 点击 **模型设置**。已有 ChatGPT 订阅并在本机官方 Codex 客户端登录时，选择 **ChatGPT 订阅（经 Codex）**，点击“使用并检查连接”；也可手动选择 DeepSeek API 并保存自己的 [API Key](https://platform.deepseek.com/api_keys)。
 2. 若需要全局选文，点击 **启用选文快捷键**，按提示在“系统设置 → 隐私与安全性 → 辅助功能”中允许学术助手。
 3. 保持助手运行，在 Overleaf 或浏览器 PDF 中选中文字，按下面的快捷键。也可直接复制粘贴文字、手动导入 PDF，无需辅助功能权限。
+
+## 使用 ChatGPT 订阅
+
+通过本机官方 `codex exec` 自动返回回答，无需手动复制。先按 [Codex 官方登录说明](https://learn.chatgpt.com/docs/auth)在客户端使用 ChatGPT 登录；API Key 登录不适用。连接检查只检查登录，不发起模型请求。需要支持 `--ignore-user-config`、`--ephemeral` 和结构化输出的新版官方 CLI；已验证 0.167.0-alpha.4.1。
+
+使用的是 **Codex 的订阅额度**，有使用限制，不等于无限量，也不共享网页 ChatGPT 的聊天历史。额度不足时显示错误并停止；应用不自动充值、不切换 API。窗口标题显示当前服务，首次升级保留原来的服务，需要主动切换。
+
+目前订阅路径只处理文字，单次材料上限 160,000 字符；超限会提示缩小页码范围，不静默截断。扫描件或图表图像需手动选择 DeepSeek API。论文库仍默认省量检索；客户端自身的固定指令也会消耗订阅额度。Claude 暂保留复制/导出材料方式，没有直接接入 Claude 登录。
 
 ## 快捷键
 
@@ -84,7 +92,7 @@ cd academic-assistant
 | 深入（手动选择） | 最多 6 篇，每篇最多 5,000 字符相关摘录 |
 | 复制提问材料 / 导出材料 | 本地生成 Markdown，不调用 DeepSeek；可交给 Claude Code、Codex、ChatGPT 或其他工具 |
 
-只有“DeepSeek 回答”或“分析这篇的关联”发起模型请求，每次最多一次，不自动重试付费请求。另附固定回答规则、问题及最多 2,000 字符的最近对话线索；字符上限不等同于实际 token 数。省量输出最多 2,400 tokens，深入最多 6,000 tokens。未找到匹配时不读取密钥、不调用模型。库中论文越多不会扩大单次材料上限。
+只有“订阅回答”/“DeepSeek 回答”或“分析这篇的关联”发起模型请求，每次最多一次，不自动重试付费请求。另附固定回答规则、问题及最多 2,000 字符的最近对话线索；字符上限不等同于实际 token 数。DeepSeek 省量输出最多 2,400 tokens，深入最多 6,000 tokens；订阅模式采用相同长度目标，无法保证硬输出上限。未找到匹配时不读取密钥、不调用模型。库中论文越多不会扩大单次材料上限。
 
 “关联图谱 → 分析这篇的关联”按省量范围整理研究问题相近、方法相似、方法差异、结果对照四种关系。关系及两边的短依据保存在本机，浏览无需再次调用模型。修改摘要、导读或笔记后旧关联失效。未生成内容关联时显示共同标签图。需要更完整比较，可到“问论文库”选择“深入”再次提问。
 
@@ -123,7 +131,7 @@ cd academic-assistant
 
 ## 数据与边界
 
-API Key 只保存在本机钥匙串。导入的 PDF、提取文字、导读、问答和笔记保存在 `~/Library/Application Support/学术助手/Papers`。点击润色、导读或问答时，对应文字、对话和已启用的页面图像会发送至 DeepSeek；这不是离线模型。详见[数据说明](docs/PRIVACY.md)。
+API Key 只保存在本机钥匙串。导入的 PDF、提取文字、导读、问答和笔记保存在 `~/Library/Application Support/学术助手/Papers`。点击润色、导读或问答时，对应文字、对话和已启用的页面图像会发送至所选模型服务；这不是离线模型。详见[数据说明](docs/PRIVACY.md)。
 
 模型可能误读表格、公式、数值或引用。页码链接便于核对，不代表结论已验证。LaTeX 检查也不是编译验证。使用前请核对原文。
 

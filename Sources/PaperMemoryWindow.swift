@@ -53,7 +53,7 @@ extension PaperIndexController {
         startMemory(question, focus: paper.id, onlyFocus: false)
     }
     func memoryBusy(_ value: Bool) {
-        questionField.isEnabled = !value; askButton.title = value ? "取消" : "DeepSeek 回答"
+        questionField.isEnabled = !value; askButton.title = value ? "取消" : (owner?.service.answerTitle ?? "回答")
         memoryDepth.isEnabled = !value
         for item in [localSearchButton, copyMemoryButton, exportMemoryButton] { item?.isEnabled = !value }
         relationButton.isEnabled = !value && selected != nil; askCurrentButton.isEnabled = !value && selected != nil
@@ -70,16 +70,14 @@ extension PaperIndexController {
         let papers = store.papers, history = memoryTurns
         let id = UUID(); memoryRequest = id; memoryBusy(true); tabs.selectTabViewItem(withIdentifier: "memory")
         statusLabel.stringValue = "正在准备论文库…"
-        let model = owner?.model ?? "deepseek-flash"
+        let selectedService = owner?.service ?? .deepseek
         let depth = MemoryDepth(rawValue: memoryDepth.indexOfSelectedItem) ?? .compact
         memoryTask = Task { [weak self] in
             guard let self else { return }
             do {
                 let service = PaperMemoryService { messages in
-                    let savedKey = try await Task.detached(priority: .userInitiated) { try KeyStore.read() }.value
-                    try Task.checkCancellation()
-                    guard let key = savedKey, !key.isEmpty else { throw AssistantFailure(message: "请先在 DeepSeek 设置中连接 API Key。") }
-                    return try await DeepSeekClient().reading(messages: messages, key: key, model: model, maxTokens: depth.outputLimit, jsonOutput: true)
+                    guard let owner = self.owner else { throw AssistantFailure(message: "请重新打开论文索引。") }
+                    return try await owner.modelResponse(messages: messages, maxTokens: depth.outputLimit, jsonOutput: true, using: selectedService)
                 }
                 let turn = try await service.ask(question: question, papers: papers, turns: history, focus: focus, onlyFocus: onlyFocus, depth: depth, record: self.readingRecord) { text in
                     if self.memoryRequest == id { self.statusLabel.stringValue = text }
@@ -92,7 +90,7 @@ extension PaperIndexController {
                 do {
                     if !turn.answer.relations.isEmpty { try self.knowledgeStore().merge(turn, activeIDs: activeIDs) }
                     let size = turn.sources.reduce(0) { $0 + $1.excerpts.reduce(0) { $0 + $1.text.count } }
-                    self.statusLabel.stringValue = turn.sources.isEmpty ? "未找到匹配 · 未调用模型" : "\(depth.title) · \(turn.sources.count) 篇 · \(size) 字符摘录 · 可继续追问"
+                    self.statusLabel.stringValue = turn.sources.isEmpty ? "未找到匹配 · 未调用模型" : "\(selectedService.title) · \(depth.title) · \(turn.sources.count) 篇 · \(size) 字符摘录 · 可继续追问"
                 } catch { self.statusLabel.stringValue = "已回答；关系未能保存：\(error.localizedDescription)" }
                 self.renderGraph()
             } catch {

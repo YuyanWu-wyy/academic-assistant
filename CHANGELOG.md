@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.7.0 — 2026-11-13
+
+- Add a shared model setting for ChatGPT subscription access through the official local Codex CLI, covering writing, paper reading and library Q&A.
+- Check subscription login without reading credentials; refuse API-key login and never automatically fall back to a paid API.
+- Bound text input and process output, stop cancelled/timed-out requests, and validate structured completions. Subscription mode is text-only.
+- Preserve compact local retrieval and document subscription limits, official client requirements and privacy boundaries.
+
 ## 1.6.0 — 2026-11-13
 
 - Retrieve papers locally without uploading the entire catalog; library size no longer scales model requests or context limits.

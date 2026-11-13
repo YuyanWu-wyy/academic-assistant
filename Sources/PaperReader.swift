@@ -75,7 +75,7 @@ final class PaperReaderController: NSObject, NSWindowDelegate, NSTextViewDelegat
         picker.target = self; picker.action = #selector(selectPaper); picker.setAccessibilityLabel("我的论文")
         picker.widthAnchor.constraint(greaterThanOrEqualToConstant: 320).isActive = true
         let renameButton = button("重命名", self, #selector(renamePaper))
-        let libraryRow = NSStackView(views: [picker, renameButton, spacer(), button("论文索引", owner!, #selector(AssistantApp.showPaperIndex)), button("写作", self, #selector(openWriting)), button("导出笔记", self, #selector(exportReading))])
+        let libraryRow = NSStackView(views: [picker, renameButton, spacer(), button("论文索引", owner!, #selector(AssistantApp.showPaperIndex)), button("写作", self, #selector(openWriting)), button("导出笔记", self, #selector(exportReading)), button("模型设置", owner!, #selector(AssistantApp.showSettings))])
         libraryRow.orientation = .horizontal; libraryRow.spacing = 10
         let importButton = button("导入 PDF", self, #selector(importPDF))
         let linkButton = button("链接", self, #selector(importLink)); linkButton.toolTip = "粘贴论文链接"
@@ -140,7 +140,7 @@ final class PaperReaderController: NSObject, NSWindowDelegate, NSTextViewDelegat
     }
     func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat { 280 }
     func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat { splitView.bounds.width - 360 }
-    func show() { NSApp.activate(ignoringOtherApps: true); window.makeKeyAndOrderFront(nil) }
+    func show() { owner?.refreshServiceUI(); NSApp.activate(ignoringOtherApps: true); window.makeKeyAndOrderFront(nil) }
     func windowShouldClose(_ sender: NSWindow) -> Bool { flushNotes(); sender.orderOut(nil); return false }
     @objc func openWriting() { owner?.showWindow() }
     @objc func fromBrowser() { owner?.readBrowserPaper() }
@@ -161,7 +161,7 @@ final class PaperReaderController: NSObject, NSWindowDelegate, NSTextViewDelegat
         flushNotes(); let record = selected; current = record
         owner?.updatePaperIndex(record, readAt: Date())
         scopeField.stringValue = ""
-        visionToggle.state = record.pages.count > 80 ? .off : .on
+        visionToggle.state = record.pages.count > 80 || owner?.service == .chatGPT ? .off : .on
         pdfView.document = record.isExcerpt ? nil : PDFDocument(url: library.pdfURL(record.id))
         passageView.string = record.isExcerpt ? record.pages.first?.text ?? "" : ""
         questionView.string = ""
@@ -216,6 +216,7 @@ final class PaperReaderController: NSObject, NSWindowDelegate, NSTextViewDelegat
     }
     func setBusy(_ value: Bool) {
         for control in busyControls { control.isEnabled = !value }
+        visionToggle.isEnabled = !value && owner?.service == .deepseek
         notesView.isEditable = !value; questionView.isEditable = !value; passageView.isEditable = !value
         cancelButton.isHidden = !value
         value ? progress.startAnimation(nil) : progress.stopAnimation(nil)
@@ -286,14 +287,10 @@ final class PaperReaderController: NSObject, NSWindowDelegate, NSTextViewDelegat
             status(record.isExcerpt ? "已从 \(source) 取得选文。本次仅依据段落；输入问题后按 ⌘↩。" : "已关联当前论文全文。可以围绕选段连续追问，按 ⌘↩ 发送。")
         } catch { status(error.localizedDescription, error: true) }
     }
-    func credentials() throws -> (String, String) {
-        guard let key = try KeyStore.read(), !key.isEmpty else { owner?.showSettings(); throw AssistantFailure(message: "请先连接 DeepSeek。") }
-        return (key, owner?.model ?? "deepseek-flash")
-    }
     func preparedImages(_ paper: PaperRecord, pages: [PaperPage], model: String) async throws -> [(Int, Data)] {
         if paper.isExcerpt { return [] }
         if visionToggle.state != .on || model != "deepseek-flash" {
-            guard pages.reduce(0, { $0 + $1.text.count }) >= 80 else { throw AssistantFailure(message: "本轮没有足够可提取的文字。请使用 Flash，指定最多 80 页并开启“同时读取图表”以阅读扫描页。") }
+            guard pages.reduce(0, { $0 + $1.text.count }) >= 80 else { throw AssistantFailure(message: "本轮没有足够可提取的文字。扫描页可在模型设置中手动选择 DeepSeek API / Flash 并启用图表，或导入可选文字的 PDF。") }
             return []
         }
         guard pages.count <= 80 else { throw AssistantFailure(message: "长文导读请关闭“同时读取图表”，或在“解读范围”中填写最多 80 页用于图表精读。原 PDF 始终完整保留。") }
@@ -308,13 +305,15 @@ final class PaperReaderController: NSObject, NSWindowDelegate, NSTextViewDelegat
         guard let record = current else { status("请先导入论文或选取段落。", error: true); return }
         tabs.selectTabViewItem(at: 0)
         perform("正在准备论文导读…") { controller in
-            let (key, model) = try controller.credentials()
+            guard let owner = controller.owner else { throw AssistantFailure(message: "请重新打开阅读窗口。") }
+            let selectedService = owner.service
+            let model = selectedService == .chatGPT ? "codex-text" : owner.model
             let pages = try PaperScope.pages(controller.scopeField.stringValue, in: record)
             try PaperScope.validate(pages)
             let images = try await controller.preparedImages(record, pages: pages, model: model)
             let scope = record.isExcerpt ? "所选段落" : PaperScope.label(pages, total: record.pages.count)
             controller.status("正在整理中文导读 · \(scope)文字 + \(images.count) 页图像；长文需要更久，可随时取消。")
-            let response = try await DeepSeekClient().reading(messages: PaperPrompts.messages(paper: record, images: images, pages: pages), key: key, model: model)
+            let response = try await owner.modelResponse(messages: PaperPrompts.messages(paper: record, images: images, pages: pages), using: selectedService)
             let answer = "> 本轮材料：\(scope)文字；\(images.isEmpty ? "未提供页面图像" : "附 \(images.count) 页图像")。\n\n" + response
             try Task.checkCancellation()
             var updated = record
@@ -334,13 +333,15 @@ final class PaperReaderController: NSObject, NSWindowDelegate, NSTextViewDelegat
         guard question.count <= 6000, passage.count <= 20_000 else { status("问题最多 6,000 字符，引用段落最多 20,000 字符，请缩短后重试。", error: true); return }
         tabs.selectTabViewItem(at: 1)
         perform("正在准备本轮问答…") { controller in
-            let (key, model) = try controller.credentials()
+            guard let owner = controller.owner else { throw AssistantFailure(message: "请重新打开阅读窗口。") }
+            let selectedService = owner.service
+            let model = selectedService == .chatGPT ? "codex-text" : owner.model
             let pages = try PaperScope.pages(controller.scopeField.stringValue, in: record)
             try PaperScope.validate(pages)
             let images = try await controller.preparedImages(record, pages: pages, model: model)
             let scope = record.isExcerpt ? "所选段落" : PaperScope.label(pages, total: record.pages.count)
             controller.status("正在结合\(record.isExcerpt ? "所选段落" : scope)与最近 \(min(record.turns.count, 16)) 轮问答回答…")
-            let response = try await DeepSeekClient().reading(messages: PaperPrompts.messages(paper: record, images: images, question: question, passage: passage, pages: pages), key: key, model: model, maxTokens: 6000)
+            let response = try await owner.modelResponse(messages: PaperPrompts.messages(paper: record, images: images, question: question, passage: passage, pages: pages), maxTokens: 6000, using: selectedService)
             let answer = "> 本轮材料：\(scope)文字；\(images.isEmpty ? "未提供页面图像" : "附 \(images.count) 页图像")。\n\n" + response
             try Task.checkCancellation()
             var updated = record; updated.turns.append(ReadingTurn(question: question, passage: passage, answer: answer))

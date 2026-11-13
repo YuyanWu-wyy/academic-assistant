@@ -29,6 +29,9 @@ class AssistantApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextVie
     var progress = NSProgressIndicator()
     var keyField: NSSecureTextField!
     var modelPicker: NSPopUpButton!
+    var servicePicker: NSPopUpButton!
+    var serviceInfo: NSTextField!
+    var deepseekSettingsGroup: NSStackView!
     var settingsStatus: NSTextField!
     var saveButton: NSButton!
     var activeTask: Task<Void, Never>?
@@ -49,6 +52,7 @@ class AssistantApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextVie
     var captureID = UUID()
     var mode: ActionMode { ActionMode(rawValue: modePicker.selectedSegment) ?? .polish }
     var model: String { UserDefaults.standard.string(forKey: "deepseekModel") ?? "deepseek-flash" }
+    var service: ModelService { ModelService(rawValue: UserDefaults.standard.string(forKey: "modelService") ?? "") ?? .deepseek }
     var busy: Bool { activeTask != nil }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -84,7 +88,7 @@ class AssistantApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextVie
         let main = NSMenu()
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "DeepSeek 设置…", action: #selector(showSettings), keyEquivalent: ",").target = self
+        appMenu.addItem(withTitle: "模型设置…", action: #selector(showSettings), keyEquivalent: ",").target = self
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "退出学术助手", action: #selector(quit), keyEquivalent: "q").target = self
         appItem.submenu = appMenu; main.addItem(appItem)
@@ -103,7 +107,7 @@ class AssistantApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextVie
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = NSImage(systemSymbolName: "text.badge.checkmark", accessibilityDescription: "学术助手")
         let menu = NSMenu()
-        for (title, action) in [("打开学术助手", #selector(showWindow)), ("论文索引与主题图谱", #selector(showPaperIndex)), ("论文阅读", #selector(showReader)), ("读取浏览器论文  ⌃⌥⌘R", #selector(readBrowserPaper)), ("选中段落提问  ⌃⌥⌘D", #selector(captureReadingSelection)), ("润色选中文字  ⌃⌥⌘P", #selector(captureSelection)), ("从剪贴板读取", #selector(pasteSource)), ("DeepSeek 设置…", #selector(showSettings)), ("启用选文快捷键…", #selector(requestAccessibility)), ("查看使用说明", #selector(showHelp))] {
+        for (title, action) in [("打开学术助手", #selector(showWindow)), ("论文索引与主题图谱", #selector(showPaperIndex)), ("论文阅读", #selector(showReader)), ("读取浏览器论文  ⌃⌥⌘R", #selector(readBrowserPaper)), ("选中段落提问  ⌃⌥⌘D", #selector(captureReadingSelection)), ("润色选中文字  ⌃⌥⌘P", #selector(captureSelection)), ("从剪贴板读取", #selector(pasteSource)), ("模型设置…", #selector(showSettings)), ("启用选文快捷键…", #selector(requestAccessibility)), ("查看使用说明", #selector(showHelp))] {
             menu.addItem(withTitle: title, action: action, keyEquivalent: "").target = self
         }
         menu.addItem(.separator()); menu.addItem(withTitle: "退出", action: #selector(quit), keyEquivalent: "q").target = self
@@ -136,12 +140,12 @@ class AssistantApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextVie
 
     func buildWindow() {
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1030, height: 690), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        window.title = "学术助手 · DeepSeek"
+        window.title = "学术助手 · \(service.title)"
         window.collectionBehavior.insert(.fullScreenPrimary)
         window.minSize = NSSize(width: 820, height: 570)
         window.isReleasedWhenClosed = false; window.delegate = self; window.center()
         let heading = label("写作", size: 18, weight: .semibold)
-        let settings = button("DeepSeek 设置", self, #selector(showSettings))
+        let settings = button("模型设置", self, #selector(showSettings))
         let header = NSStackView(views: [heading, spacer(), button("论文索引", self, #selector(showPaperIndex)), button("论文阅读", self, #selector(showReader)), settings]); header.orientation = .horizontal; header.spacing = 10
         modePicker = NSSegmentedControl(labels: ["英文润色", "中文解释", "中英翻译"], trackingMode: .selectOne, target: self, action: #selector(modeChanged))
         modePicker.selectedSegment = 0
@@ -163,7 +167,7 @@ class AssistantApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextVie
         progress.style = .spinning; progress.controlSize = .small; progress.isDisplayedWhenStopped = false
         let actions = NSStackView(views: [runButton, cancelButton, progress, spacer(), copyButton]); actions.orientation = .horizontal; actions.spacing = 10
         statusLabel.textColor = .secondaryLabelColor
-        let privacy = label("仅在你发起处理时，将左侧文字发送至 DeepSeek。结果不会自动替换原文。", size: 11)
+        let privacy = label("仅在你发起处理时，将左侧文字发送至所选模型服务。结果不会自动替换原文。", size: 11)
         privacy.textColor = .tertiaryLabelColor
         let stack = NSStackView(views: [header, tools, panels, actions, statusLabel, privacy])
         stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 15
@@ -254,21 +258,17 @@ class AssistantApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextVie
         let source = original.string
         guard !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { status("先选中或粘贴一段文字。", error: true); return }
         guard source.count <= 18000 else { status("一次最多处理 18,000 个字符，请分段选取。", error: true); return }
-        let key: String
-        do {
-            guard let saved = try KeyStore.read(), !saved.isEmpty else { status("请先在 DeepSeek 设置中填入 API Key。", error: true); showSettings(); return }
-            key = saved
-        } catch { status(error.localizedDescription, error: true); return }
-        let selectedMode = mode, selectedModel = model
+        let selectedMode = mode, selectedService = service
         let id = UUID(); requestID = id
         result.string = ""; copyButton.isEnabled = false
         original.isEditable = false; modePicker.isEnabled = false; runButton.isEnabled = false
         cancelButton.isHidden = false; progress.startAnimation(nil)
-        status("DeepSeek 正在\(selectedMode == .polish ? "润色" : selectedMode == .explain ? "解释" : "翻译")这段文字…")
+        status("\(selectedService.title) 正在\(selectedMode == .polish ? "润色" : selectedMode == .explain ? "解释" : "翻译")这段文字…")
         activeTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let response = try await DeepSeekClient().complete(text: source, mode: selectedMode, key: key, model: selectedModel)
+                let text = try await self.modelResponse(messages: [["role": "system", "content": try systemInstruction(selectedMode)], ["role": "user", "content": source]], maxTokens: 8192, using: selectedService)
+                let response = try decodeCompletion(["choices": [["message": ["content": text], "finish_reason": "stop"]]], original: source, mode: selectedMode)
                 guard !Task.isCancelled, self.requestID == id else { return }
                 self.result.string = response.text
                 self.copyButton.isEnabled = response.warning == nil
@@ -422,33 +422,47 @@ class AssistantApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextVie
 
     @objc func showSettings() {
         if let settingsWindow { NSApp.activate(ignoringOtherApps: true); settingsWindow.makeKeyAndOrderFront(nil); return }
-        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 590, height: 480), styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        w.title = "连接 DeepSeek"; w.isReleasedWhenClosed = false; w.center(); settingsWindow = w
-        keyField = NSSecureTextField(); keyField.placeholderString = "粘贴 DeepSeek API Key（已有密钥时可留空）"; keyField.setAccessibilityLabel("DeepSeek API Key")
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 620, height: 510), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        w.title = "模型设置"; w.isReleasedWhenClosed = false; w.center(); settingsWindow = w
+        servicePicker = NSPopUpButton(); servicePicker.addItems(withTitles: [ModelService.chatGPT.title, ModelService.deepseek.title])
+        servicePicker.selectItem(at: service == .chatGPT ? 0 : 1); servicePicker.setAccessibilityLabel("模型服务")
+        servicePicker.target = self; servicePicker.action = #selector(serviceChoiceChanged)
+        serviceInfo = label("", size: 13)
+        keyField = NSSecureTextField(); keyField.placeholderString = "已有 DeepSeek API Key 时可留空"; keyField.setAccessibilityLabel("DeepSeek API Key")
         modelPicker = NSPopUpButton(); modelPicker.addItems(withTitles: ["deepseek-flash", "deepseek-v4-pro"]); modelPicker.selectItem(withTitle: model)
-        saveButton = button("保存并验证连接", self, #selector(saveSettings))
-        settingsStatus = label("密钥保存在此 Mac 的钥匙串中，不写入普通文件。")
-        settingsStatus.textColor = .secondaryLabelColor
-        let keyLink = button("打开 DeepSeek API 平台", self, #selector(openPlatform))
-        let description = label("填一次密钥，以后选中文字即可使用。API 按 DeepSeek 开放平台的用量规则计费。", size: 14)
-        let footer = label("连接地址：https://api.deepseek.com\n验证连接只读取模型列表；发起润色时才发送所选文字。", size: 12)
-        footer.textColor = .secondaryLabelColor
-        let row = NSStackView(views: [saveButton, spacer(), keyLink]); row.orientation = .horizontal
-        let stack = NSStackView(views: [label("把 DeepSeek 接到你的写作流程。", size: 21, weight: .semibold), description, label("API Key", weight: .semibold), keyField, label("模型", weight: .semibold), modelPicker, row, settingsStatus, footer])
-        stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 12; stack.translatesAutoresizingMaskIntoConstraints = false
+        deepseekSettingsGroup = NSStackView(views: [label("DeepSeek API Key", weight: .semibold), keyField, label("DeepSeek 模型", weight: .semibold), modelPicker, button("打开 DeepSeek API 平台", self, #selector(openPlatform))])
+        deepseekSettingsGroup.orientation = .vertical; deepseekSettingsGroup.alignment = .leading; deepseekSettingsGroup.spacing = 10
+        keyField.widthAnchor.constraint(equalTo: deepseekSettingsGroup.widthAnchor).isActive = true
+        saveButton = button("使用并检查连接", self, #selector(saveSettings))
+        settingsStatus = label("当前：\(service.title)"); settingsStatus.textColor = .secondaryLabelColor
+        let row = NSStackView(views: [saveButton, spacer(), button("打开 ChatGPT / Codex", self, #selector(openCodexApp))]); row.orientation = .horizontal
+        let stack = NSStackView(views: [label("选择模型服务", size: 21, weight: .semibold), servicePicker, serviceInfo, deepseekSettingsGroup, row, settingsStatus])
+        stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 14; stack.translatesAutoresizingMaskIntoConstraints = false
         w.contentView!.addSubview(stack)
         NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: w.contentView!.leadingAnchor, constant: 24), stack.trailingAnchor.constraint(equalTo: w.contentView!.trailingAnchor, constant: -24), stack.topAnchor.constraint(equalTo: w.contentView!.topAnchor, constant: 24)])
-        for view in [keyField!, row, settingsStatus!] { view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true }
-        NSApp.activate(ignoringOtherApps: true); w.makeKeyAndOrderFront(nil)
+        for view in [serviceInfo!, deepseekSettingsGroup!, row, settingsStatus!] { view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true }
+        serviceChoiceChanged(); NSApp.activate(ignoringOtherApps: true); w.makeKeyAndOrderFront(nil)
+    }
+    @objc func serviceChoiceChanged() {
+        let subscription = servicePicker.indexOfSelectedItem == 0
+        deepseekSettingsGroup.isHidden = subscription
+        serviceInfo.stringValue = subscription ? "通过本机官方 Codex 使用已登录的 ChatGPT 订阅额度，回答直接回到助手。支持写作、导读与问答，目前仅处理文字。额度或连接不足时停止，不自动切换到 API。" : "使用 DeepSeek 开放平台，按 API 用量计费。密钥保存在本机钥匙串。Flash 可处理页面图像。"
+        settingsStatus.stringValue = "当前：\(service.title) · 点击“使用并检查连接”后生效"
+    }
+    @objc func openCodexApp() {
+        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.openai.codex") { NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration()) }
+        else { NSWorkspace.shared.open(URL(string: "https://learn.chatgpt.com/docs/auth")!) }
     }
     @objc func openPlatform() { NSWorkspace.shared.open(URL(string: "https://platform.deepseek.com/api_keys")!) }
     @objc func saveSettings() {
         guard validationTask == nil else { return }
+        guard !busy, reader?.busy != true, indexWindow?.memoryTask == nil else { settingsStatus.stringValue = "请先完成或取消当前请求，再切换服务。"; return }
+        if servicePicker.indexOfSelectedItem == 0 { saveSubscription(); return }
         var key = keyField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         if key.isEmpty { key = (try? KeyStore.read()) ?? "" }
         guard !key.isEmpty, !key.contains("\n"), !key.contains(" ") else { settingsStatus.stringValue = "请输入完整的 API Key。"; return }
         let selected = modelPicker.titleOfSelectedItem ?? "deepseek-flash"
-        keyField.isEnabled = false; saveButton.isEnabled = false; settingsStatus.stringValue = "正在验证 DeepSeek 连接…"
+        keyField.isEnabled = false; saveButton.isEnabled = false; servicePicker.isEnabled = false; settingsStatus.stringValue = "正在验证 DeepSeek 连接…"
         validationTask = Task { [weak self] in
             guard let self else { return }
             do {
@@ -457,11 +471,12 @@ class AssistantApp: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextVie
                 guard models.contains(selected) else { throw AssistantFailure(message: "该密钥无法使用 \(selected)。请检查账号支持的模型。") }
                 try KeyStore.save(key)
                 UserDefaults.standard.set(selected, forKey: "deepseekModel")
+                UserDefaults.standard.set(ModelService.deepseek.rawValue, forKey: "modelService"); self.refreshServiceUI()
                 self.keyField.stringValue = ""
                 self.settingsStatus.stringValue = "连接成功，密钥已保存。可以关闭此窗口开始使用。"
                 self.status("DeepSeek 已连接。选取一段文字即可开始。")
             } catch { self.settingsStatus.stringValue = error is URLError ? "连接失败，请检查网络后重试。" : error.localizedDescription }
-            self.keyField.isEnabled = true; self.saveButton.isEnabled = true; self.validationTask = nil
+            self.keyField.isEnabled = true; self.saveButton.isEnabled = true; self.servicePicker.isEnabled = true; self.validationTask = nil
         }
     }
     func showDemo() {
